@@ -1,0 +1,26 @@
+# FireConvLSTM 训练配置文件
+
+# 数据参数
+data_root: "/home/cxt/datasets/fire_detection/fire_sequential_data"  # 数据集根目录 (包含 data.csv)，必需参数
+seq_length: 10                  # 序列长度 (连续帧数)
+stride: 3                       # 滑动窗口步长
+target_size: [640, 640]         # 目标图像尺寸 (H, W)
+
+# 训练参数
+batch_size: 16                  # 批次大小
+epochs: 10                     # 训练轮数
+lr: 0.0001                      # 学习率
+weight_decay: 0.00001           # 权重衰减
+val_ratio: 0.2                  # 验证集比例
+
+# 其他参数
+num_workers: 4                  # 数据加载线程数
+device: "auto"                  # 训练设备 (cuda/cpu/auto)
+seed: 42                        # 随机种子
+save_dir: "./checkpoints"       # 模型保存目录
+resume: null                    # 从检查点恢复训练 (null 表示不恢复)
+
+# 检测报告参数
+report_interval: 5              # 每隔多少轮生成一次检测报告 (0 表示不生成)
+report_dir: "./reports"         # 检测报告保存目录
+report_samples: 10              # 每次报告抽样的样本数量 (dynamic 和 static 各一半)(base) cxt@debian:~/projects/convls
