@@ -1,27 +1,26 @@
 """
-Video Segmentation Processor API
+视频分割处理器 API
 
-This module provides an API to process videos using YOLO segmentation models,
-automatically determining whether to use mask mode or bbox mode based on
-detection patterns.
+本模块提供使用 YOLO 分割模型处理视频的 API，
+根据检测模式自动判断使用掩码模式还是边界框模式。
 
-Supports both video files and frame lists (list[np.ndarray]).
+支持视频文件和帧列表（list[np.ndarray]）两种输入方式。
 
-Usage:
+使用方法:
     from segment.video_processor import VideoSegmentProcessor, ProcessedFrame
 
     processor = VideoSegmentProcessor(model_path="path/to/model.pt")
 
-    # Process video file
+    # 处理视频文件
     for frame in processor.process_video("path/to/video.mp4"):
         if frame is not None:
-            # frame.data: processed frame data (np.ndarray)
-            # frame.mode: 'mask' or 'bbox'
-            # frame.frame_idx: frame index
-            # frame.detections: list of detection info
+            # frame.data: 处理后的帧数据 (np.ndarray)
+            # frame.mode: 'mask' 或 'bbox'
+            # frame.frame_idx: 帧索引
+            # frame.detections: 检测信息列表
             pass
 
-    # Process frame list
+    # 处理帧列表
     frames = [frame1, frame2, frame3]  # list[np.ndarray]
     for frame in processor.process_frames(frames):
         if frame is not None:
@@ -40,14 +39,14 @@ from .mask_ema import MaskEMA
 
 
 class ROIMode(Enum):
-    """ROI (Region of Interest) processing mode."""
-    MASK = "mask"   # Use pixel-level mask for ROI
-    BBOX = "bbox"   # Use full frame (bbox indicates regions but doesn't crop)
+    """ROI（感兴趣区域）处理模式。"""
+    MASK = "mask"   # 使用像素级掩码作为 ROI
+    BBOX = "bbox"   # 使用完整帧（边界框指示区域但不裁剪）
 
 
 @dataclass
 class ProcessedFrame:
-    """Result of processing a single video frame."""
+    """单个视频帧的处理结果。"""
     frame_idx: int
     data: np.ndarray
     mode: ROIMode
@@ -60,7 +59,7 @@ class ProcessedFrame:
 
 @dataclass
 class VideoAnalysisResult:
-    """Result of video analysis for ROI strategy determination."""
+    """用于确定 ROI 策略的视频分析结果。"""
     recommended_mode: ROIMode
     total_frames: int
     sampled_frames: int
@@ -71,11 +70,11 @@ class VideoAnalysisResult:
 
     @property
     def has_targets(self) -> bool:
-        """Returns True if video contains detectable targets."""
+        """如果视频包含可检测目标则返回 True。"""
         return (self.mask_mode_frames + self.bbox_mode_frames) > 0
 
 
-# Default configuration
+# 默认配置
 DEFAULT_CLASS_NAMES = {
     0: "fire_core",
     1: "fire_obscured",
@@ -83,30 +82,30 @@ DEFAULT_CLASS_NAMES = {
     3: "smoke_source"
 }
 
-# Classes that use mask mode (pixel-level segmentation)
+# 使用掩码模式的类别（像素级分割）
 MASK_CLASSES = {0, 3}  # fire_core, smoke_source
-# Classes that use bbox mode (bounding box only)
+# 使用边界框模式的类别（仅边界框）
 BBOX_CLASSES = {1, 2}  # fire_obscured, smoke_obscured
 
-# Processing parameters
+# 处理参数
 INFERENCE_SIZE = (640, 640)
 DEFAULT_CONFIDENCE_THRESHOLD = 0.5
-MASK_AREA_THRESHOLD = 0.25  # Max mask area ratio for mask mode (25% of frame)
-BBOX_RATIO_THRESHOLD = 0.10  # If >10% frames need bbox mode, use bbox for entire video
-EMA_ALPHA = 0.2  # EMA smoothing factor
+MASK_AREA_THRESHOLD = 0.25  # 掩码模式的最大掩码面积比（帧的25%）
+BBOX_RATIO_THRESHOLD = 0.10  # 如果超过10%的帧需要边界框模式，则整个视频使用边界框模式
+EMA_ALPHA = 0.2  # EMA 平滑因子
 
 
 class VideoSegmentProcessor:
     """
-    Video segmentation processor API.
+    视频分割处理器 API。
 
-    Analyzes video content and automatically determines optimal processing mode
-    (mask or bbox) based on detection patterns.
+    分析视频内容并根据检测模式自动确定最佳处理模式
+    （掩码或边界框）。
 
-    Example:
+    示例:
         processor = VideoSegmentProcessor("model.pt")
 
-        # Process video and get frames with detections
+        # 处理视频并获取带有检测结果的帧
         for frame in processor.process_video("video.mp4"):
             if frame is not None:
                 cv2.imshow("Result", frame.data)
@@ -122,20 +121,20 @@ class VideoSegmentProcessor:
         class_names: Optional[Dict[int, str]] = None
     ):
         """
-        Initialize the video segment processor.
+        初始化视频分割处理器。
 
-        Args:
-            model_path: Path to YOLO segmentation model (.pt file)
-            confidence_threshold: Minimum confidence for detections (default: 0.5)
-            use_ema: Enable EMA smoothing for masks (default: True)
-            ema_alpha: EMA smoothing factor (default: 0.2)
-            class_names: Custom class name mapping (default: fire/smoke classes)
+        参数:
+            model_path: YOLO 分割模型路径（.pt 文件）
+            confidence_threshold: 检测的最小置信度（默认: 0.5）
+            use_ema: 启用掩码的 EMA 平滑（默认: True）
+            ema_alpha: EMA 平滑因子（默认: 0.2）
+            class_names: 自定义类别名称映射（默认: 火焰/烟雾类别）
         """
         from ultralytics import YOLO
 
         self.model_path = Path(model_path)
         if not self.model_path.exists():
-            raise FileNotFoundError(f"Model file not found: {model_path}")
+            raise FileNotFoundError(f"模型文件未找到: {model_path}")
 
         self.model = YOLO(str(self.model_path))
         self.confidence_threshold = confidence_threshold
@@ -150,22 +149,22 @@ class VideoSegmentProcessor:
         sample_rate: int = 10
     ) -> VideoAnalysisResult:
         """
-        Analyze video to determine optimal ROI strategy.
+        分析视频以确定最佳 ROI 策略。
 
-        Samples frames from the video and determines whether mask mode or
-        bbox mode is more appropriate for the entire video.
+        从视频中采样帧并确定掩码模式或边界框模式
+        哪种更适合整个视频。
 
-        Args:
-            video_path: Path to video file
-            sample_rate: Sample every Nth frame (default: 10)
+        参数:
+            video_path: 视频文件路径
+            sample_rate: 每隔 N 帧采样一次（默认: 10）
 
-        Returns:
-            VideoAnalysisResult with recommended mode and statistics
+        返回:
+            包含推荐模式和统计信息的 VideoAnalysisResult
         """
         video_path = Path(video_path)
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
-            raise ValueError(f"Cannot open video: {video_path}")
+            raise ValueError(f"无法打开视频: {video_path}")
 
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         frame_idx = 0
@@ -203,12 +202,12 @@ class VideoSegmentProcessor:
 
         cap.release()
 
-        # Decision: if >10% of frames need bbox mode, use bbox for entire video
+        # 决策: 如果超过10%的帧需要边界框模式，则整个视频使用边界框模式
         detection_frames = mask_mode_count + bbox_mode_count
         bbox_ratio = bbox_mode_count / sampled_frames if sampled_frames > 0 else 0.0
 
         if detection_frames == 0:
-            recommended_mode = ROIMode.MASK  # No detections, but use mask mode as default
+            recommended_mode = ROIMode.MASK  # 无检测结果，但默认使用掩码模式
         elif bbox_ratio > BBOX_RATIO_THRESHOLD:
             recommended_mode = ROIMode.BBOX
         else:
@@ -231,41 +230,41 @@ class VideoSegmentProcessor:
         force_mode: Optional[ROIMode] = None
     ) -> Generator[Optional[ProcessedFrame], None, None]:
         """
-        Process video and yield processed frames.
+        处理视频并生成处理后的帧。
 
-        This is the main API method. It analyzes the video to determine
-        optimal processing mode, then yields processed frames.
+        这是主要的 API 方法。它分析视频以确定最佳处理模式，
+        然后生成处理后的帧。
 
-        Args:
-            video_path: Path to video file
-            skip_no_detection: If True, yields None for frames without detections
-                               If False, yields empty frame data
-            force_mode: Force a specific mode instead of auto-detecting
+        参数:
+            video_path: 视频文件路径
+            skip_no_detection: 如果为 True，对无检测结果的帧返回 None
+                               如果为 False，返回空帧数据
+            force_mode: 强制使用指定模式而非自动检测
 
-        Yields:
-            ProcessedFrame objects for frames with detections,
-            None for frames without detections (if skip_no_detection=True)
+        生成:
+            有检测结果的帧返回 ProcessedFrame 对象，
+            无检测结果的帧返回 None（如果 skip_no_detection=True）
         """
         video_path = Path(video_path)
 
-        # Analyze video to determine mode (unless forced)
+        # 分析视频以确定模式（除非强制指定）
         if force_mode is None:
             analysis = self.analyze_video(video_path)
             video_mode = analysis.recommended_mode
 
-            # If no targets detected in entire video, skip processing
+            # 如果整个视频未检测到目标，跳过处理
             if not analysis.has_targets:
                 return
         else:
             video_mode = force_mode
 
-        # Reset EMA for new video
+        # 为新视频重置 EMA
         if self.use_ema:
             self._mask_ema = MaskEMA(alpha=self.ema_alpha)
 
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
-            raise ValueError(f"Cannot open video: {video_path}")
+            raise ValueError(f"无法打开视频: {video_path}")
 
         frame_idx = 0
         while True:
@@ -299,14 +298,14 @@ class VideoSegmentProcessor:
         sample_rate: int = 10
     ) -> VideoAnalysisResult:
         """
-        Analyze frame list to determine optimal ROI strategy.
+        分析帧列表以确定最佳 ROI 策略。
 
-        Args:
-            frames: List of frames (H, W, C)
-            sample_rate: Sample every Nth frame (default: 10)
+        参数:
+            frames: 帧列表 (H, W, C)
+            sample_rate: 每隔 N 帧采样一次（默认: 10）
 
-        Returns:
-            VideoAnalysisResult with recommended mode and statistics
+        返回:
+            包含推荐模式和统计信息的 VideoAnalysisResult
         """
         total_frames = len(frames)
         sampled_frames = 0
@@ -362,21 +361,20 @@ class VideoSegmentProcessor:
         force_mode: Optional[ROIMode] = None
     ) -> Generator[Optional[ProcessedFrame], None, None]:
         """
-        Process a list of frames and yield processed results.
+        处理帧列表并生成处理结果。
 
-        This method analyzes the frames to determine optimal processing mode,
-        then yields processed frames.
+        此方法分析帧以确定最佳处理模式，然后生成处理后的帧。
 
-        Args:
-            frames: List of frames (H, W, C) as np.ndarray
-            skip_no_detection: If True, yields None for frames without detections
-            force_mode: Force a specific mode instead of auto-detecting
+        参数:
+            frames: 帧列表 (H, W, C)，类型为 np.ndarray
+            skip_no_detection: 如果为 True，对无检测结果的帧返回 None
+            force_mode: 强制使用指定模式而非自动检测
 
-        Yields:
-            ProcessedFrame objects for frames with detections,
-            None for frames without detections (if skip_no_detection=True)
+        生成:
+            有检测结果的帧返回 ProcessedFrame 对象，
+            无检测结果的帧返回 None（如果 skip_no_detection=True）
 
-        Example:
+        示例:
             frames = [cv2.imread(f) for f in image_files]
             for result in processor.process_frames(frames):
                 if result is not None:
@@ -385,18 +383,18 @@ class VideoSegmentProcessor:
         if len(frames) == 0:
             return
 
-        # Analyze frames to determine mode (unless forced)
+        # 分析帧以确定模式（除非强制指定）
         if force_mode is None:
             analysis = self.analyze_frames(frames)
             video_mode = analysis.recommended_mode
 
-            # If no targets detected, skip processing
+            # 如果未检测到目标，跳过处理
             if not analysis.has_targets:
                 return
         else:
             video_mode = force_mode
 
-        # Reset EMA for new sequence
+        # 为新序列重置 EMA
         if self.use_ema:
             self._mask_ema = MaskEMA(alpha=self.ema_alpha)
 
@@ -423,14 +421,14 @@ class VideoSegmentProcessor:
         mode: ROIMode = ROIMode.MASK
     ) -> Optional[ProcessedFrame]:
         """
-        Process a single frame.
+        处理单个帧。
 
-        Args:
-            frame: Input frame (H, W, C)
-            mode: Processing mode (mask or bbox)
+        参数:
+            frame: 输入帧 (H, W, C)
+            mode: 处理模式（掩码或边界框）
 
-        Returns:
-            ProcessedFrame if detections found, None otherwise
+        返回:
+            如果有检测结果返回 ProcessedFrame，否则返回 None
         """
         return self._process_frame(frame, mode)
 
@@ -439,14 +437,14 @@ class VideoSegmentProcessor:
         frame: np.ndarray,
         mode: ROIMode
     ) -> Optional[ProcessedFrame]:
-        """Internal frame processing implementation."""
+        """内部帧处理实现。"""
         resized = cv2.resize(frame, INFERENCE_SIZE, interpolation=cv2.INTER_LINEAR)
         h, w = resized.shape[:2]
 
         results = self.model(resized, conf=self.confidence_threshold, verbose=False)[0]
         detections = self._extract_detections(results, (h, w))
 
-        # No detections -> return None
+        # 无检测结果 -> 返回 None
         if not detections:
             return None
 
@@ -460,7 +458,7 @@ class VideoSegmentProcessor:
         ]
 
         if mode == ROIMode.BBOX:
-            # Bbox mode: return full frame
+            # 边界框模式: 返回完整帧
             return ProcessedFrame(
                 frame_idx=0,
                 data=resized.copy(),
@@ -468,11 +466,11 @@ class VideoSegmentProcessor:
                 detections=det_info
             )
         else:
-            # Mask mode: apply mask to frame
+            # 掩码模式: 对帧应用掩码
             mask_dets = [d for d in detections if d.class_id in MASK_CLASSES]
 
             if not mask_dets:
-                # No mask-compatible detections, fallback to full frame
+                # 无掩码兼容的检测结果，回退到完整帧
                 return ProcessedFrame(
                     frame_idx=0,
                     data=resized.copy(),
@@ -480,14 +478,14 @@ class VideoSegmentProcessor:
                     detections=det_info
                 )
 
-            # Create combined mask
+            # 创建合并掩码
             combined_mask = self._create_combined_mask(mask_dets, (h, w))
 
-            # Apply EMA smoothing if enabled
+            # 如果启用则应用 EMA 平滑
             if self._mask_ema is not None:
                 combined_mask = self._mask_ema.update(combined_mask)
 
-            # Apply mask to frame
+            # 对帧应用掩码
             output = resized.copy()
             output[combined_mask == 0] = 0
 
@@ -503,7 +501,7 @@ class VideoSegmentProcessor:
         results,
         frame_shape: Tuple[int, int]
     ) -> List[Detection]:
-        """Extract Detection objects from YOLO results."""
+        """从 YOLO 结果中提取 Detection 对象。"""
         h, w = frame_shape
         detections = []
 
@@ -523,7 +521,7 @@ class VideoSegmentProcessor:
         mask_detections: List[Detection],
         frame_shape: Tuple[int, int]
     ) -> ROIMode:
-        """Decide whether frame should use mask or bbox mode."""
+        """决定帧应使用掩码模式还是边界框模式。"""
         if not mask_detections:
             return ROIMode.BBOX
 
@@ -541,7 +539,7 @@ class VideoSegmentProcessor:
         detections: List[Detection],
         frame_shape: Tuple[int, int]
     ) -> np.ndarray:
-        """Create combined mask from multiple detections."""
+        """从多个检测结果创建合并掩码。"""
         h, w = frame_shape
         combined = np.zeros((h, w), dtype=np.uint8)
 
@@ -567,21 +565,21 @@ def process_video_api(
     skip_no_detection: bool = True
 ) -> Generator[Optional[ProcessedFrame], None, None]:
     """
-    Convenience function to process a video file.
+    处理视频文件的便捷函数。
 
-    This is a simple wrapper around VideoSegmentProcessor for quick usage.
+    这是 VideoSegmentProcessor 的简单封装，便于快速使用。
 
-    Args:
-        video_path: Path to video file
-        model_path: Path to YOLO model file
-        confidence_threshold: Minimum detection confidence
-        use_ema: Enable EMA smoothing
-        skip_no_detection: Skip frames without detections
+    参数:
+        video_path: 视频文件路径
+        model_path: YOLO 模型文件路径
+        confidence_threshold: 最小检测置信度
+        use_ema: 启用 EMA 平滑
+        skip_no_detection: 跳过无检测结果的帧
 
-    Yields:
-        ProcessedFrame objects for frames with detections
+    生成:
+        有检测结果的帧返回 ProcessedFrame 对象
 
-    Example:
+    示例:
         for frame in process_video_api("video.mp4", "model.pt"):
             if frame is not None:
                 print(f"Frame {frame.frame_idx}: {frame.mode.value}")
@@ -607,21 +605,21 @@ def process_frames_api(
     skip_no_detection: bool = True
 ) -> Generator[Optional[ProcessedFrame], None, None]:
     """
-    Convenience function to process a list of frames.
+    处理帧列表的便捷函数。
 
-    This is a simple wrapper around VideoSegmentProcessor for quick usage.
+    这是 VideoSegmentProcessor 的简单封装，便于快速使用。
 
-    Args:
-        frames: List of frames (H, W, C) as np.ndarray
-        model_path: Path to YOLO model file
-        confidence_threshold: Minimum detection confidence
-        use_ema: Enable EMA smoothing
-        skip_no_detection: Skip frames without detections
+    参数:
+        frames: 帧列表 (H, W, C)，类型为 np.ndarray
+        model_path: YOLO 模型文件路径
+        confidence_threshold: 最小检测置信度
+        use_ema: 启用 EMA 平滑
+        skip_no_detection: 跳过无检测结果的帧
 
-    Yields:
-        ProcessedFrame objects for frames with detections
+    生成:
+        有检测结果的帧返回 ProcessedFrame 对象
 
-    Example:
+    示例:
         frames = [cv2.imread(f) for f in image_files]
         for frame in process_frames_api(frames, "model.pt"):
             if frame is not None:
