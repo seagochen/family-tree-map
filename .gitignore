@@ -217,3 +217,13 @@ __marimo__/
 
 # Other files to ignore
 *.swp
+*.mp4
+*.mov
+*.avi
+
+# Ignore models
+*.pth
+*.pt
+
+# Ignore some folders
+preview_frames/

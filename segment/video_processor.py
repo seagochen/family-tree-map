@@ -452,7 +452,8 @@ class VideoSegmentProcessor:
             {
                 'class_id': d.class_id,
                 'class_name': self.class_names.get(d.class_id, f"class_{d.class_id}"),
-                'confidence': d.confidence
+                'confidence': d.confidence,
+                'bbox': [d.x1, d.y1, d.x2, d.y2]
             }
             for d in detections
         ]
