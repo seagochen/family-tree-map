@@ -46,12 +46,10 @@ class ProcessedFrame:
         return len(self.detections) > 0
 
 
-# 默认配置
+# 默认配置 - 只关注火焰和烟雾，其他类别（standing, squatting）作为背景忽略
 DEFAULT_CLASS_NAMES = {
     0: "fire",
     1: "smoke",
-    2: "standing",
-    3: "squatting"
 }
 
 # 处理参数
