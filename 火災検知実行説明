@@ -1,0 +1,44 @@
+192.168.1.89
+eartheyes/ubuntu
+注意，需要sudo su
+
+空间模型：
+1. 服务器文件目录：/work/FireDetection
+2. 执行命令：yolo detect train data=data.yaml model=yolov8m.pt epochs=50 imgsz=640 batch=16  注意：用的是yolov8m，不是yolov8n
+3. 目前dataset下images和labels中，包括eartheyes提供的数据和D-File的数据
+第二步执行完后，在/work/FireDetection/runs/detect/trainXXX/weight下会生成best.pt文件，然后把best.pt文件放到/work/fpa_model目录下
+
+
+-- 20240701_fpa_test1.tsv的non-fire全部替换成non_fire（为了和SQL中的定义匹配，CREATE TYPE label AS ENUM ('non_fire', 'fire');）
+
+
+时间模型推理: /work/fpa_model
+1. 执行以下脚本
+INSERT INTO spatial_models (architecture,variant,training_started,feature_size,description) VALUES ('yolov8','yolov8m',  now(), 1152,  'YOLOv8-based smoke/fire detector');
+update configurations set current_value = 'yolov8' where item_name = 'extractor_model_architecture';
+update configurations set current_value = 'yolov8m' where item_name = 'extractor_model_variant';
+update configurations set current_value = now() where item_name = 'extractor_model_timestamp';
+update configurations set current_value = 4 where item_name = 'training_batch_size';
+
+
+1. python3 -m scripts.video_import --db-host localhost --db-name fpa_videos --db-user fpa_admin --db-secret 4BfELgXI8Z --data-root VIDEO_DATA --clip-tsv 20240701_fpa_test1.tsv
+2. python3 -m scripts.feature_extraction --db-host localhost --db-name fpa_videos --db-user fpa_admin --db-secret 4BfELgXI8Z --data-root VIDEO_DATA --extractor-model best.pt
+3. python3 -m scripts.training --db-host localhost --db-name fpa_videos --db-user fpa_admin --db-secret 4BfELgXI8Z --output-directory /work/fpa_model
+4. python3 -m scripts.demo --stream video.mp4 --spatial-model best.pt --spatial-detection-threshold 0.5 --temporal-model temporal_model.pt --db-host localhost --db-name fpa_videos --db-user fpa_admin --db-secret 4BfELgXI8Z
+
+注意第四步：因为linux服务器不支持图形界面，所以直接在服务器上执行第四步命令会报错，如果要在服务器上执行该命令，需要注释掉 app.py中的193行到196行代码
+cv.imshow("Real-Time Fire Detection", img)
+output.write(img)
+cv.waitKey(1)
+
+
+
+主要修改点：
+1. model.py中，在model上添加了cls（类型）字段，用于区分火和烟。model.py的_process方法中，注释掉了原先的预处理方法，直接拿图片去调用模型做检测。
+2. feature_extractor.py中，在返回类中，添加了每个包围盒对应的类型（火/烟），置信度。
+3. feature_maker.py中，修改了比较xml中包围盒和检测返回包围盒计算交并比的逻辑（_label_frame_feature()方法中的iou_geometric方法）
+4. 视频检测接口目录：scripts/demo/newapp.py.bak(执行的时候把文件名bak去掉)
+
+
+服务器上/work/fpa_model下的video1.mp4，video2.mp4，video3.mp4，video4.mp4是竹之下提供的检测视频文件。
+我演示用过的视频文件是VIDEO_DATA/tenpula_oil2/video.mp4和VIDEO_DATA/cars/video.mp4这两个文件，其中VIDEO_DATA/tenpula_oil2/video.mp4是给社长演示的，VIDEO_DATA/cars/video.mp4是烟和火区分后邮件附件检测的视频
