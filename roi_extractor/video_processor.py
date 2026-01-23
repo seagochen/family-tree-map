@@ -1,23 +1,22 @@
 """
-视频 ROI 提取处理器
+ROI 提取 Pipeline
 
-从视频中提取火焰/烟雾的感兴趣区域 (ROI)：
-- fire (class 0): 使用分割 mask + EMA 平滑 + 边缘平滑
-- smoke (class 2): 使用并集 bbox（计算视频中所有 smoke 的并集）
-- person (class 1): 忽略（负样本）
+处理一批连续图片，提取火焰/烟雾的感兴趣区域 (ROI)：
+- fire (class 0): 使用分割 mask + EMA 平滑
+- smoke (class 2): 使用该批次所有 smoke bbox 的并集
+- person (class 1): 忽略
 
-当同时检测到 fire 和 smoke 时：
-- fire 区域使用 mask 提取
-- smoke 区域使用 bbox 提取
-- 组合两个区域的 mask
+处理流程：
+1. 对所有帧运行检测
+2. 计算 smoke 的 union bbox（整个批次）
+3. 对每帧应用 fire mask (EMA 平滑) + smoke mask (union bbox)
+4. 不需要的像素置 0
 """
 
 import cv2
 import numpy as np
-from pathlib import Path
 from dataclasses import dataclass, field
-from typing import List, Dict, Tuple, Optional, Generator, Literal
-from ultralytics import YOLO
+from typing import List, Dict, Tuple, Optional, Literal, Any
 
 from .constants import (
     CLASS_NAMES,
@@ -28,7 +27,6 @@ from .constants import (
     DEFAULT_CONFIDENCE_THRESHOLD,
     EMA_ALPHA,
     BBOX_PADDING_RATIO,
-    DEFAULT_SAMPLE_RATE,
 )
 from .detection import (
     Detection,
@@ -46,7 +44,7 @@ DetectMode = Literal['all', 'fire', 'smoke']
 @dataclass
 class ProcessedFrame:
     """处理后的帧数据"""
-    frame_idx: int                           # 帧索引
+    frame_idx: int                           # 帧索引（在批次中的位置）
     data: np.ndarray                         # 处理后的帧数据 (ROI 提取后)
     roi_type: str                            # ROI 类型: 'fire', 'smoke', 'fire+smoke', 'none'
     has_fire: bool = False                   # 是否包含 fire
@@ -60,333 +58,263 @@ class ProcessedFrame:
 
 
 @dataclass
-class VideoAnalysisResult:
-    """视频分析结果"""
-    total_frames: int
-    sampled_frames: int
-    frames_with_fire: int
-    frames_with_smoke: int
-    smoke_bboxes_count: int
-    smoke_union_bbox: Optional[Tuple[int, int, int, int]]
-    fps: float
-    detect_mode: str
+class BatchResult:
+    """批次处理结果"""
+    frames: List[ProcessedFrame]             # 处理后的帧列表
+    smoke_union_bbox: Optional[Tuple[int, int, int, int]]  # smoke 并集 bbox
+    frames_with_fire: int                    # 包含 fire 的帧数
+    frames_with_smoke: int                   # 包含 smoke 的帧数
 
 
-class VideoROIProcessor:
+class ROIPipeline:
     """
-    视频 ROI 处理器
+    ROI 提取 Pipeline
 
-    处理流程：
-    1. 分析视频获取 smoke 的并集 bbox（可选）
-    2. 逐帧处理：
-       - fire: 提取分割 mask + EMA 平滑
-       - smoke: 使用预计算的并集 bbox
-       - 组合两个区域
+    处理一批连续图片，提取火焰/烟雾区域，不需要的像素置 0。
+
+    使用示例:
+        model = YOLO("model.pt")
+        pipeline = ROIPipeline(model)
+
+        frames = [frame1, frame2, ..., frame10]  # 10 张连续图片
+        result = pipeline.process_batch(frames)
+
+        for processed in result.frames:
+            cv2.imshow("ROI", processed.data)
     """
 
     def __init__(
         self,
-        model_path: str,
+        model: Any,
         confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
         use_ema: bool = True,
         ema_alpha: float = EMA_ALPHA,
         bbox_padding: float = BBOX_PADDING_RATIO,
-        sample_rate: int = DEFAULT_SAMPLE_RATE,
     ):
         """
-        初始化处理器
+        初始化 Pipeline
 
         Args:
-            model_path: YOLO 分割模型路径
+            model: YOLO 模型对象（由外部传入）
             confidence_threshold: 置信度阈值
             use_ema: 是否使用 EMA 平滑 fire mask
             ema_alpha: EMA 平滑因子
             bbox_padding: smoke bbox 内边距比例
-            sample_rate: 视频分析时的采样率（每 N 帧采样一次）
         """
-        self.model = YOLO(model_path)
+        self.model = model
         self.confidence_threshold = confidence_threshold
         self.use_ema = use_ema
         self.ema_alpha = ema_alpha
         self.bbox_padding = bbox_padding
-        self.sample_rate = sample_rate
 
-        # 内部状态
-        self._mask_ema: Optional[MaskEMA] = None
-        self._smoke_union_bbox: Optional[Tuple[int, int, int, int]] = None
-        self._frame_idx = 0
+    # ==================== 主要接口 ====================
 
-    def analyze_video_for_smoke_bbox(
-        self,
-        video_path: str,
-        detect_mode: DetectMode = 'all'
-    ) -> VideoAnalysisResult:
-        """
-        分析视频计算 smoke 的稳定并集 bbox
-
-        Args:
-            video_path: 视频文件路径
-            detect_mode: 检测模式 ('all', 'fire', 'smoke')
-
-        Returns:
-            VideoAnalysisResult 分析结果
-        """
-        # 如果只检测 fire，跳过 smoke bbox 分析
-        if detect_mode == 'fire':
-            cap = cv2.VideoCapture(str(video_path))
-            if not cap.isOpened():
-                raise ValueError(f"无法打开视频: {video_path}")
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            cap.release()
-
-            self._smoke_union_bbox = None
-            return VideoAnalysisResult(
-                total_frames=total_frames,
-                sampled_frames=0,
-                frames_with_fire=0,
-                frames_with_smoke=0,
-                smoke_bboxes_count=0,
-                smoke_union_bbox=None,
-                fps=fps,
-                detect_mode=detect_mode
-            )
-
-        cap = cv2.VideoCapture(str(video_path))
-        if not cap.isOpened():
-            raise ValueError(f"无法打开视频: {video_path}")
-
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps = cap.get(cv2.CAP_PROP_FPS)
-
-        all_smoke_bboxes = []
-        frame_idx = 0
-        sampled_frames = 0
-        frames_with_smoke = 0
-        frames_with_fire = 0
-
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            if frame_idx % self.sample_rate == 0:
-                resized_frame = cv2.resize(frame, INFERENCE_SIZE, interpolation=cv2.INTER_LINEAR)
-                h, w = resized_frame.shape[:2]
-
-                results = self.model(resized_frame, conf=self.confidence_threshold, verbose=False)[0]
-                detections = extract_detections_from_yolo(results, (h, w), TARGET_CLASSES, self.confidence_threshold)
-
-                # 分离 fire 和 smoke 检测
-                smoke_dets = [d for d in detections if d.class_id in BBOX_CLASSES]
-                fire_dets = [d for d in detections if d.class_id in SEGMENT_CLASSES]
-
-                if smoke_dets:
-                    frames_with_smoke += 1
-                    for det in smoke_dets:
-                        all_smoke_bboxes.append((det.x1, det.y1, det.x2, det.y2))
-
-                if fire_dets:
-                    frames_with_fire += 1
-
-                sampled_frames += 1
-
-            frame_idx += 1
-
-        cap.release()
-
-        # 计算 smoke 的并集 bbox
-        smoke_union_bbox = compute_bbox_union(all_smoke_bboxes)
-
-        if smoke_union_bbox is not None:
-            h, w = INFERENCE_SIZE
-            smoke_union_bbox = add_bbox_padding(smoke_union_bbox, (h, w), self.bbox_padding)
-
-        self._smoke_union_bbox = smoke_union_bbox
-
-        return VideoAnalysisResult(
-            total_frames=total_frames,
-            sampled_frames=sampled_frames,
-            frames_with_fire=frames_with_fire,
-            frames_with_smoke=frames_with_smoke,
-            smoke_bboxes_count=len(all_smoke_bboxes),
-            smoke_union_bbox=smoke_union_bbox,
-            fps=fps,
-            detect_mode=detect_mode
-        )
-
-    def process_frame(
-        self,
-        frame: np.ndarray,
-        detect_mode: DetectMode = 'all'
-    ) -> ProcessedFrame:
-        """
-        处理单帧
-
-        Args:
-            frame: 输入帧 (BGR)
-            detect_mode: 检测模式 ('all', 'fire', 'smoke')
-
-        Returns:
-            ProcessedFrame 处理结果
-        """
-        resized_frame = cv2.resize(frame, INFERENCE_SIZE, interpolation=cv2.INTER_LINEAR)
-        h, w = resized_frame.shape[:2]
-
-        results = self.model(resized_frame, conf=self.confidence_threshold, verbose=False)[0]
-        detections = extract_detections_from_yolo(results, (h, w), TARGET_CLASSES, self.confidence_threshold)
-
-        # 根据检测模式筛选
-        if detect_mode == 'fire':
-            fire_dets = [d for d in detections if d.class_id in SEGMENT_CLASSES]
-            smoke_dets = []
-        elif detect_mode == 'smoke':
-            fire_dets = []
-            smoke_dets = [d for d in detections if d.class_id in BBOX_CLASSES]
-        else:  # 'all'
-            fire_dets = [d for d in detections if d.class_id in SEGMENT_CLASSES]
-            smoke_dets = [d for d in detections if d.class_id in BBOX_CLASSES]
-
-        # 构建检测信息
-        det_info = [
-            {'class_id': d.class_id, 'class_name': CLASS_NAMES[d.class_id], 'confidence': d.confidence, 'bbox': d.bbox}
-            for d in (fire_dets + smoke_dets)
-        ]
-
-        # 初始化组合 mask
-        combined_mask = np.zeros((h, w), dtype=np.uint8)
-        has_fire = len(fire_dets) > 0
-        has_smoke = len(smoke_dets) > 0 and self._smoke_union_bbox is not None
-
-        # 处理 fire: 使用分割 mask
-        if has_fire:
-            fire_mask = np.zeros((h, w), dtype=np.uint8)
-            for det in fire_dets:
-                if det.mask is not None:
-                    if det.mask.shape != (h, w):
-                        mask_resized = cv2.resize(det.mask.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
-                    else:
-                        mask_resized = det.mask.astype(np.uint8)
-                    fire_mask = np.maximum(fire_mask, mask_resized)
-
-            # 应用 EMA 平滑
-            if self._mask_ema is not None:
-                fire_mask = self._mask_ema.update(fire_mask)
-
-            combined_mask = np.maximum(combined_mask, fire_mask)
-
-        # 处理 smoke: 使用并集 bbox
-        if has_smoke:
-            x1, y1, x2, y2 = self._smoke_union_bbox
-            bbox_mask = np.zeros((h, w), dtype=np.uint8)
-            bbox_mask[y1:y2, x1:x2] = 1
-            combined_mask = np.maximum(combined_mask, bbox_mask)
-
-        # 应用组合 mask
-        if combined_mask.sum() > 0:
-            output_frame = resized_frame.copy()
-            output_frame[combined_mask == 0] = 0
-            roi_type = 'fire+smoke' if (has_fire and has_smoke) else ('fire' if has_fire else 'smoke')
-        else:
-            output_frame = np.zeros_like(resized_frame)
-            roi_type = 'none'
-
-        result = ProcessedFrame(
-            frame_idx=self._frame_idx,
-            data=output_frame,
-            roi_type=roi_type,
-            has_fire=has_fire,
-            has_smoke=has_smoke,
-            detections=det_info
-        )
-
-        self._frame_idx += 1
-        return result
-
-    def process_video(
-        self,
-        video_path: str,
-        detect_mode: DetectMode = 'all',
-        skip_no_detection: bool = True,
-        analyze_first: bool = True
-    ) -> Generator[ProcessedFrame, None, None]:
-        """
-        处理视频并生成处理后的帧
-
-        Args:
-            video_path: 视频文件路径
-            detect_mode: 检测模式 ('all', 'fire', 'smoke')
-            skip_no_detection: 是否跳过无检测的帧
-            analyze_first: 是否先分析视频（获取 smoke 并集 bbox）
-
-        Yields:
-            ProcessedFrame 处理结果
-        """
-        # 重置状态
-        self.reset()
-
-        # 第一步：分析视频获取 smoke 并集 bbox
-        if analyze_first and detect_mode != 'fire':
-            self.analyze_video_for_smoke_bbox(video_path, detect_mode)
-
-        # 第二步：逐帧处理
-        cap = cv2.VideoCapture(str(video_path))
-        if not cap.isOpened():
-            raise ValueError(f"无法打开视频: {video_path}")
-
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            result = self.process_frame(frame, detect_mode)
-
-            if skip_no_detection and not result.has_detections:
-                continue
-
-            yield result
-
-        cap.release()
-
-    def process_frames(
+    def process_batch(
         self,
         frames: List[np.ndarray],
         detect_mode: DetectMode = 'all',
         skip_no_detection: bool = False
-    ) -> Generator[ProcessedFrame, None, None]:
+    ) -> BatchResult:
         """
-        处理帧列表
-
-        注意：使用此方法前，如果需要 smoke bbox，应先调用 analyze_video_for_smoke_bbox
+        处理一批连续图片
 
         Args:
-            frames: 帧列表
-            detect_mode: 检测模式
+            frames: 连续图片列表 (BGR)
+            detect_mode: 检测模式 ('all', 'fire', 'smoke')
             skip_no_detection: 是否跳过无检测的帧
 
-        Yields:
-            ProcessedFrame 处理结果
+        Returns:
+            BatchResult 批次处理结果
         """
-        for frame in frames:
-            result = self.process_frame(frame, detect_mode)
+        if not frames:
+            return BatchResult(
+                frames=[],
+                smoke_union_bbox=None,
+                frames_with_fire=0,
+                frames_with_smoke=0
+            )
 
-            if skip_no_detection and not result.has_detections:
-                continue
+        # 1. 预处理所有帧
+        resized_frames = [self._preprocess_frame(f) for f in frames]
+        h, w = resized_frames[0].shape[:2]
 
-            yield result
+        # 2. 对所有帧运行检测
+        all_detections = [self._run_detection(f) for f in resized_frames]
+        all_filtered = [self._filter_detections(d, detect_mode) for d in all_detections]
 
-    def reset(self):
-        """重置处理器状态（处理新视频时调用）"""
-        self._mask_ema = MaskEMA(alpha=self.ema_alpha) if self.use_ema else None
-        self._smoke_union_bbox = None
-        self._frame_idx = 0
+        # 3. 计算 smoke union bbox（整个批次）
+        smoke_union_bbox = self._compute_batch_smoke_union(all_filtered, (h, w))
 
-    @property
-    def smoke_union_bbox(self) -> Optional[Tuple[int, int, int, int]]:
-        """获取当前的 smoke 并集 bbox"""
-        return self._smoke_union_bbox
+        # 4. 初始化 EMA
+        mask_ema = MaskEMA(alpha=self.ema_alpha) if self.use_ema else None
 
-    @smoke_union_bbox.setter
-    def smoke_union_bbox(self, value: Optional[Tuple[int, int, int, int]]):
-        """设置 smoke 并集 bbox（用于外部预计算的情况）"""
-        self._smoke_union_bbox = value
+        # 5. 处理每帧
+        results = []
+        frames_with_fire = 0
+        frames_with_smoke = 0
+
+        for idx, (resized_frame, (fire_dets, smoke_dets)) in enumerate(zip(resized_frames, all_filtered)):
+            has_fire = len(fire_dets) > 0
+            has_smoke = len(smoke_dets) > 0 and smoke_union_bbox is not None
+
+            if has_fire:
+                frames_with_fire += 1
+            if has_smoke:
+                frames_with_smoke += 1
+
+            # 构建 mask
+            fire_mask = self._build_fire_mask(fire_dets, (h, w), mask_ema) if has_fire else np.zeros((h, w), dtype=np.uint8)
+            smoke_mask = self._build_smoke_mask(smoke_union_bbox, (h, w)) if has_smoke else np.zeros((h, w), dtype=np.uint8)
+
+            # 应用 mask
+            output_frame, roi_type = self._apply_mask_to_frame(resized_frame, fire_mask, smoke_mask)
+
+            result = ProcessedFrame(
+                frame_idx=idx,
+                data=output_frame,
+                roi_type=roi_type,
+                has_fire=has_fire,
+                has_smoke=has_smoke,
+                detections=self._build_detection_info(fire_dets, smoke_dets)
+            )
+
+            if not skip_no_detection or result.has_detections:
+                results.append(result)
+
+        return BatchResult(
+            frames=results,
+            smoke_union_bbox=smoke_union_bbox,
+            frames_with_fire=frames_with_fire,
+            frames_with_smoke=frames_with_smoke
+        )
+
+    # ==================== 辅助方法 ====================
+
+    def _preprocess_frame(self, frame: np.ndarray) -> np.ndarray:
+        """预处理帧（resize 到推理尺寸）"""
+        return cv2.resize(frame, INFERENCE_SIZE, interpolation=cv2.INTER_LINEAR)
+
+    def _run_detection(self, frame: np.ndarray) -> List[Detection]:
+        """运行 YOLO 检测"""
+        h, w = frame.shape[:2]
+        results = self.model(frame, conf=self.confidence_threshold, verbose=False)[0]
+        return extract_detections_from_yolo(results, (h, w), TARGET_CLASSES, self.confidence_threshold)
+
+    def _filter_detections(
+        self,
+        detections: List[Detection],
+        detect_mode: DetectMode
+    ) -> Tuple[List[Detection], List[Detection]]:
+        """根据检测模式筛选 fire 和 smoke 检测"""
+        if detect_mode == 'fire':
+            return [d for d in detections if d.class_id in SEGMENT_CLASSES], []
+        elif detect_mode == 'smoke':
+            return [], [d for d in detections if d.class_id in BBOX_CLASSES]
+        else:  # 'all'
+            fire_dets = [d for d in detections if d.class_id in SEGMENT_CLASSES]
+            smoke_dets = [d for d in detections if d.class_id in BBOX_CLASSES]
+            return fire_dets, smoke_dets
+
+    def _compute_batch_smoke_union(
+        self,
+        all_filtered: List[Tuple[List[Detection], List[Detection]]],
+        shape: Tuple[int, int]
+    ) -> Optional[Tuple[int, int, int, int]]:
+        """计算整个批次的 smoke union bbox"""
+        all_smoke_bboxes = []
+        for _, smoke_dets in all_filtered:
+            for det in smoke_dets:
+                all_smoke_bboxes.append((det.x1, det.y1, det.x2, det.y2))
+
+        if not all_smoke_bboxes:
+            return None
+
+        union_bbox = compute_bbox_union(all_smoke_bboxes)
+        if union_bbox is not None:
+            union_bbox = add_bbox_padding(union_bbox, shape, self.bbox_padding)
+
+        return union_bbox
+
+    def _build_fire_mask(
+        self,
+        fire_dets: List[Detection],
+        shape: Tuple[int, int],
+        mask_ema: Optional[MaskEMA]
+    ) -> np.ndarray:
+        """从 fire 检测构建 mask（含 EMA 平滑）"""
+        h, w = shape
+        fire_mask = np.zeros((h, w), dtype=np.uint8)
+
+        for det in fire_dets:
+            if det.mask is not None:
+                if det.mask.shape != (h, w):
+                    mask_resized = cv2.resize(
+                        det.mask.astype(np.uint8), (w, h),
+                        interpolation=cv2.INTER_NEAREST
+                    )
+                else:
+                    mask_resized = det.mask.astype(np.uint8)
+                fire_mask = np.maximum(fire_mask, mask_resized)
+
+        # 应用 EMA 平滑
+        if mask_ema is not None:
+            fire_mask = mask_ema.update(fire_mask)
+
+        return fire_mask
+
+    def _build_smoke_mask(
+        self,
+        smoke_union_bbox: Optional[Tuple[int, int, int, int]],
+        shape: Tuple[int, int]
+    ) -> np.ndarray:
+        """从 union bbox 构建 smoke mask"""
+        h, w = shape
+        smoke_mask = np.zeros((h, w), dtype=np.uint8)
+
+        if smoke_union_bbox is not None:
+            x1, y1, x2, y2 = smoke_union_bbox
+            smoke_mask[y1:y2, x1:x2] = 1
+
+        return smoke_mask
+
+    def _apply_mask_to_frame(
+        self,
+        frame: np.ndarray,
+        fire_mask: np.ndarray,
+        smoke_mask: np.ndarray
+    ) -> Tuple[np.ndarray, str]:
+        """合并 mask 并应用到帧（不需要的像素置 0）"""
+        combined_mask = np.maximum(fire_mask, smoke_mask)
+        has_fire = fire_mask.sum() > 0
+        has_smoke = smoke_mask.sum() > 0
+
+        if combined_mask.sum() > 0:
+            output_frame = frame.copy()
+            output_frame[combined_mask == 0] = 0
+            if has_fire and has_smoke:
+                roi_type = 'fire+smoke'
+            elif has_fire:
+                roi_type = 'fire'
+            else:
+                roi_type = 'smoke'
+        else:
+            output_frame = np.zeros_like(frame)
+            roi_type = 'none'
+
+        return output_frame, roi_type
+
+    def _build_detection_info(
+        self,
+        fire_dets: List[Detection],
+        smoke_dets: List[Detection]
+    ) -> List[Dict]:
+        """构建检测信息列表"""
+        return [
+            {
+                'class_id': d.class_id,
+                'class_name': CLASS_NAMES[d.class_id],
+                'confidence': d.confidence,
+                'bbox': d.bbox
+            }
+            for d in (fire_dets + smoke_dets)
+        ]
