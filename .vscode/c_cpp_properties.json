@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/home/user/projects/fpa_fire_detection/trt_engine/include",
+                "/home/user/projects/fpa_fire_detection/trt_engine",
+                "/opt/cudatt/include",
+                "/usr/include/x86_64-linux-gnu",
+                "/usr/local/cuda/include",
+                "/opt/tensorrt/tensorrt/include"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/g++",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}
