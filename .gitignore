@@ -224,6 +224,5 @@ __marimo__/
 # Ignore models
 *.pth
 *.pt
-
-# Ignore some folders
-preview_frames/
+*.onnx
+*.engine
