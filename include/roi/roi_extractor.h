@@ -25,7 +25,7 @@
 #include <unordered_set>
 #include <unordered_map>
 
-#include "yolov8_postprocess.h"
+#include "detector/yolov8_postprocess.h"
 
 namespace roi_extractor {
 

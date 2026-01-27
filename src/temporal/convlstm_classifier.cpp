@@ -3,7 +3,7 @@
  * @brief ConvLSTM 时序分类器实现
  */
 
-#include "convlstm_classifier.h"
+#include "temporal/convlstm_classifier.h"
 
 #include <iostream>
 #include <algorithm>

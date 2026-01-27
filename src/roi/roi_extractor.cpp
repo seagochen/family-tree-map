@@ -3,7 +3,7 @@
  * @brief Implementation of ROI extraction module
  */
 
-#include "roi_extractor.h"
+#include "roi/roi_extractor.h"
 #include <algorithm>
 #include <cmath>
 
