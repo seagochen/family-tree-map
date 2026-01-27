@@ -2,7 +2,7 @@
   "onnx_path": "./models/convlstm.onnx",
   "target_path": "./models/convlstm.engine",
   "model_information": {
-    "name": "TemporalClassifier (ConvLSTM)",
+    "name": "TemporalClassifier (ConvLSTM) with fixed batch size",
     "description": "ConvLSTM-based temporal classifier for fire detection, distinguishes dynamic vs static patterns",
     "input_tensors": [
       {"name": "input", "dimensions": [1, 10, 3, 640, 640], "description": "(Batch, Time, Channel, Height, Width)"}
@@ -13,9 +13,6 @@
   },
   "trt_config": {
     "precision": "fp16",
-    "min_shapes": "input:1x10x3x640x640",
-    "opt_shapes": "input:1x10x3x640x640",
-    "max_shapes": "input:4x10x3x640x640",
     "use_nvdla": false,
     "verbose": true,
     "use_spin_wait": false

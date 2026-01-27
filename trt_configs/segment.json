@@ -14,9 +14,6 @@
   },
   "trt_config": {
     "precision": "fp16",
-    "min_shapes": "images:1x3x640x640",
-    "opt_shapes": "images:1x3x640x640",
-    "max_shapes": "images:4x3x640x640",
     "use_nvdla": false,
     "verbose": true,
     "use_spin_wait": false
