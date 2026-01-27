@@ -24,6 +24,7 @@
 // 本地头文件
 #include "yolov8_postprocess.h"
 #include "roi_extractor.h"
+#include "convlstm_classifier.h"
 
 // YOLOv8-seg 模型常量
 constexpr int INPUT_WIDTH = 640;
@@ -39,9 +40,12 @@ constexpr int NUM_MASK_COEFFS = 32;
 struct Args {
     std::string video_path;
     std::string engine_path;
+    std::string convlstm_engine_path;  // ConvLSTM 引擎路径
     float confidence_threshold = 0.5f;
     float iou_threshold = 0.45f;
+    int convlstm_seq_len = 10;         // ConvLSTM 序列长度
     bool display_enabled = true;
+    bool enable_temporal = false;       // 是否启用时序分类
     bool help_requested = false;
     bool parse_error = false;
     std::string error_message;
@@ -50,13 +54,16 @@ struct Args {
 void printUsage(const char* progName) {
     std::cout << "Usage: " << progName << " --video <path> --engine <path> [options]\n"
               << "\nRequired arguments:\n"
-              << "  --video PATH      Path to input video file\n"
-              << "  --engine PATH     Path to segment.engine file\n"
+              << "  --video PATH        Path to input video file\n"
+              << "  --engine PATH       Path to segment.engine file\n"
               << "\nOptions:\n"
               << "  --confidence FLOAT  Detection confidence threshold (default: 0.5)\n"
               << "  --iou FLOAT         NMS IoU threshold (default: 0.45)\n"
               << "  --no-display        Disable display (for headless mode)\n"
               << "  --help              Show this help message\n"
+              << "\nTemporal Classification (ConvLSTM):\n"
+              << "  --convlstm-engine PATH  Path to convlstm.engine file (enables temporal classification)\n"
+              << "  --seq-len INT           Sequence length for ConvLSTM (default: 10)\n"
               << std::endl;
 }
 
@@ -121,6 +128,29 @@ Args parseArgs(int argc, char* argv[]) {
             }
         } else if (arg == "--no-display") {
             args.display_enabled = false;
+        } else if (arg == "--convlstm-engine") {
+            if (i + 1 < argc) {
+                args.convlstm_engine_path = argv[++i];
+                args.enable_temporal = true;
+            } else {
+                args.parse_error = true;
+                args.error_message = "--convlstm-engine requires a path argument";
+                return args;
+            }
+        } else if (arg == "--seq-len") {
+            if (i + 1 < argc) {
+                try {
+                    args.convlstm_seq_len = std::stoi(argv[++i]);
+                } catch (const std::exception& e) {
+                    args.parse_error = true;
+                    args.error_message = "--seq-len requires a valid integer value";
+                    return args;
+                }
+            } else {
+                args.parse_error = true;
+                args.error_message = "--seq-len requires an integer argument";
+                return args;
+            }
         } else {
             args.parse_error = true;
             args.error_message = "Unknown argument: " + arg;
@@ -298,7 +328,13 @@ int main(int argc, char* argv[]) {
     std::cout << "  Engine: " << args.engine_path << "\n";
     std::cout << "  Confidence threshold: " << args.confidence_threshold << "\n";
     std::cout << "  IoU threshold: " << args.iou_threshold << "\n";
-    std::cout << "  Display: " << (args.display_enabled ? "enabled" : "disabled") << "\n\n";
+    std::cout << "  Display: " << (args.display_enabled ? "enabled" : "disabled") << "\n";
+    std::cout << "  Temporal classification: " << (args.enable_temporal ? "enabled" : "disabled") << "\n";
+    if (args.enable_temporal) {
+        std::cout << "    ConvLSTM engine: " << args.convlstm_engine_path << "\n";
+        std::cout << "    Sequence length: " << args.convlstm_seq_len << "\n";
+    }
+    std::cout << "\n";
 
     // 初始化 CUDA
     std::cout << "Initializing CUDA...\n";
@@ -382,6 +418,32 @@ int main(int argc, char* argv[]) {
         roi_extractor::BBOX_PADDING_RATIO
     );
 
+    // 创建 ConvLSTM 时序分类器（如果启用）
+    std::unique_ptr<TrtEngineMultiTs> convlstm_engine;
+    std::unique_ptr<convlstm::ConvLSTMClassifier> convlstm_classifier;
+
+    if (args.enable_temporal) {
+        std::cout << "Loading ConvLSTM engine...\n";
+        convlstm_engine = std::make_unique<TrtEngineMultiTs>();
+
+        if (!convlstm_engine->loadFromFile(args.convlstm_engine_path)) {
+            std::cerr << "Error: Failed to load ConvLSTM engine from "
+                      << args.convlstm_engine_path << std::endl;
+            return 1;
+        }
+        std::cout << "  ConvLSTM engine loaded successfully\n";
+
+        convlstm_classifier = std::make_unique<convlstm::ConvLSTMClassifier>(
+            *convlstm_engine, args.convlstm_seq_len);
+
+        if (!convlstm_classifier->initialize()) {
+            std::cerr << "Error: Failed to initialize ConvLSTM classifier" << std::endl;
+            return 1;
+        }
+        std::cout << "  ConvLSTM classifier initialized (seq_len="
+                  << args.convlstm_seq_len << ")\n\n";
+    }
+
     // 创建显示窗口
     const std::string window_name = "Fire Detection ROI";
     if (args.display_enabled) {
@@ -464,6 +526,55 @@ int main(int argc, char* argv[]) {
                     cv::Point(10, 90),
                     cv::FONT_HERSHEY_SIMPLEX, 0.7, color, 2
                 );
+            }
+
+            // ConvLSTM 时序分类
+            if (convlstm_classifier) {
+                // 将 ROI 处理后的帧添加到缓冲区
+                convlstm_classifier->addFrame(display_frame);
+
+                // 显示缓冲区状态
+                std::string buffer_status = "Buffer: " +
+                    std::to_string(convlstm_classifier->getBufferSize()) + "/" +
+                    std::to_string(convlstm_classifier->getSeqLen());
+
+                cv::putText(
+                    display_frame,
+                    buffer_status,
+                    cv::Point(10, 120),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2
+                );
+
+                // 缓冲区满后执行推理
+                if (convlstm_classifier->isBufferFull()) {
+                    if (convlstm_classifier->infer()) {
+                        auto classification = convlstm_classifier->getClassification();
+                        float confidence = convlstm_classifier->getConfidence();
+
+                        // 获取分类结果的显示颜色和文本
+                        cv::Scalar cls_color = convlstm::classificationToColor(classification);
+                        std::string cls_text = std::string("Temporal: ") +
+                            convlstm::classificationToString(classification) +
+                            " (" + std::to_string(static_cast<int>(confidence * 100)) + "%)";
+
+                        cv::putText(
+                            display_frame,
+                            cls_text,
+                            cv::Point(10, 150),
+                            cv::FONT_HERSHEY_SIMPLEX, 0.7, cls_color, 2
+                        );
+
+                        // 如果是动态火焰，在画面上添加警告
+                        if (classification == convlstm::Classification::DYNAMIC) {
+                            cv::putText(
+                                display_frame,
+                                "!!! FIRE ALERT !!!",
+                                cv::Point(display_frame.cols / 2 - 150, 50),
+                                cv::FONT_HERSHEY_SIMPLEX, 1.2, cv::Scalar(0, 0, 255), 3
+                            );
+                        }
+                    }
+                }
             }
 
             // 显示帧

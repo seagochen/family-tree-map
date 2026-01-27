@@ -75,6 +75,7 @@ set(TRT_ENGINE_SOURCES
     src/yolov8_postprocess.cpp
     src/fire_pipeline.cpp
     src/roi_extractor.cpp
+    src/convlstm_classifier.cpp
 )
 
 # Create static library for trt_engine
