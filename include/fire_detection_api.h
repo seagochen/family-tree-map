@@ -132,9 +132,6 @@ struct FIRE_API FrameResult {
     bool has_smoke = false;             ///< 是否检测到烟雾
     std::vector<BoundingBox> detections; ///< 检测框列表
     cv::Mat roi_frame;                  ///< ROI 处理后的帧（非 ROI 区域置黑）
-
-    /// 是否有任何检测
-    bool hasDetection() const { return has_fire || has_smoke; }
 };
 
 /**
@@ -149,7 +146,43 @@ struct FIRE_API DetectionResult {
     float temporal_confidence = 0.0f;   ///< 时序置信度
     float class_scores[3] = {0, 0, 0};  ///< 各类别得分 [STATIC, DYNAMIC, NEGATIVE]
 
-    /// 是否为真实火灾警报
+    //=========================================================================
+    // 空间检测查询（不依赖时序分析，立即可用）
+    //=========================================================================
+
+    /// 当前帧是否检测到火焰
+    bool hasFire() const { return frame.has_fire; }
+
+    /// 当前帧是否检测到烟雾
+    bool hasSmoke() const { return frame.has_smoke; }
+
+    /// 获取所有火焰检测框
+    std::vector<BoundingBox> getFireBoxes(float confidence_threshold = 0.5f) const {
+        std::vector<BoundingBox> result;
+        for (const auto& box : frame.detections) {
+            if (box.class_id == DetectionClass::FIRE && box.confidence >= confidence_threshold) {
+                result.push_back(box);
+            }
+        }
+        return result;
+    }
+
+    /// 获取所有烟雾检测框
+    std::vector<BoundingBox> getSmokeBoxes(float confidence_threshold = 0.5f) const {
+        std::vector<BoundingBox> result;
+        for (const auto& box : frame.detections) {
+            if (box.class_id == DetectionClass::SMOKE && box.confidence >= confidence_threshold) {
+                result.push_back(box);
+            }
+        }
+        return result;
+    }
+
+    //=========================================================================
+    // 时序分析查询（需要缓冲区满后才有效）
+    //=========================================================================
+
+    /// 是否为真实火灾警报（需要时序分析确认）
     bool isFireAlert() const {
         return temporal_valid && temporal_class == TemporalClass::DYNAMIC;
     }
@@ -463,6 +496,36 @@ FIRE_API int fire_detector_get_buffer_size(FireDetectorHandle handle);
  * @return 是否已满 (0/1)
  */
 FIRE_API int fire_detector_is_buffer_full(FireDetectorHandle handle);
+
+/**
+ * @brief 从检测结果中获取火焰检测框
+ * @param result 检测结果指针
+ * @param confidence_threshold 置信度阈值
+ * @param output_boxes 输出数组（调用方分配）
+ * @param max_boxes 输出数组最大容量
+ * @return 实际返回的检测框数量
+ */
+FIRE_API int fire_detection_result_get_fire_boxes(
+    const FireDetectionResultC* result,
+    float confidence_threshold,
+    BoundingBoxC* output_boxes,
+    int max_boxes
+);
+
+/**
+ * @brief 从检测结果中获取烟雾检测框
+ * @param result 检测结果指针
+ * @param confidence_threshold 置信度阈值
+ * @param output_boxes 输出数组（调用方分配）
+ * @param max_boxes 输出数组最大容量
+ * @return 实际返回的检测框数量
+ */
+FIRE_API int fire_detection_result_get_smoke_boxes(
+    const FireDetectionResultC* result,
+    float confidence_threshold,
+    BoundingBoxC* output_boxes,
+    int max_boxes
+);
 
 /**
  * @brief 获取版本号

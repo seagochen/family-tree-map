@@ -100,7 +100,7 @@ int main(int argc, char* argv[]) {
             status = "No detection";
         }
 
-        cv::Scalar status_color = result.frame.hasDetection()
+        cv::Scalar status_color = (result.hasFire() || result.hasSmoke())
             ? cv::Scalar(0, 0, 255) : cv::Scalar(0, 255, 0);
 
         cv::putText(display, "Status: " + status,

@@ -161,6 +161,48 @@ int fire_detector_is_buffer_full(FireDetectorHandle handle) {
     return detector->isBufferFull() ? 1 : 0;
 }
 
+int fire_detection_result_get_fire_boxes(
+    const FireDetectionResultC* result,
+    float confidence_threshold,
+    BoundingBoxC* output_boxes,
+    int max_boxes
+) {
+    if (!result || !output_boxes || max_boxes <= 0) {
+        return 0;
+    }
+
+    int count = 0;
+    for (int i = 0; i < result->detection_count && count < max_boxes; ++i) {
+        const BoundingBoxC& box = result->detections[i];
+        // class_id 0 = FIRE
+        if (box.class_id == 0 && box.confidence >= confidence_threshold) {
+            output_boxes[count++] = box;
+        }
+    }
+    return count;
+}
+
+int fire_detection_result_get_smoke_boxes(
+    const FireDetectionResultC* result,
+    float confidence_threshold,
+    BoundingBoxC* output_boxes,
+    int max_boxes
+) {
+    if (!result || !output_boxes || max_boxes <= 0) {
+        return 0;
+    }
+
+    int count = 0;
+    for (int i = 0; i < result->detection_count && count < max_boxes; ++i) {
+        const BoundingBoxC& box = result->detections[i];
+        // class_id 2 = SMOKE
+        if (box.class_id == 2 && box.confidence >= confidence_threshold) {
+            output_boxes[count++] = box;
+        }
+    }
+    return count;
+}
+
 const char* fire_detector_get_version(void) {
     return fire_detection::getVersion();
 }

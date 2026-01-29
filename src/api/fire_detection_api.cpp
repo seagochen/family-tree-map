@@ -330,9 +330,11 @@ public:
         last_roi_frame_ = result.frame.roi_frame;
 
         // ========== 步骤4: ConvLSTM 时序分析 ==========
-        // 将处理后的帧添加到 ConvLSTM 的滑动窗口缓冲区
-        // ConvLSTM 需要连续多帧才能分析时序特征
-        convlstm_classifier_->addFrame(processed_frame);
+        // 只有检测到火焰或烟雾时，才添加帧到时序分析缓冲区
+        // 避免无目标的全黑帧干扰时序特征分析
+        if (result.frame.has_fire || result.frame.has_smoke) {
+            convlstm_classifier_->addFrame(processed_frame);
+        }
 
         // 检查缓冲区是否已满（收集够足够的帧）
         // 只有缓冲区满时才执行时序推理
