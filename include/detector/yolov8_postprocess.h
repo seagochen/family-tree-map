@@ -63,13 +63,19 @@ public:
      * @param img_height Original image height
      * @param input_width Model input width (640)
      * @param input_height Model input height (640)
+     * @param letterbox_scale Letterbox缩放比例（保持宽高比的缩放因子）
+     * @param pad_x Letterbox水平填充偏移量
+     * @param pad_y Letterbox垂直填充偏移量
      * @return Vector of detections with masks
+     *
+     * @note 坐标还原公式: x_orig = (x_model - pad_x) / letterbox_scale
      */
     std::vector<Detection> process(
         const std::vector<float>& output0,
         const std::vector<float>& output1,
         int img_width, int img_height,
-        int input_width = 640, int input_height = 640);
+        int input_width, int input_height,
+        float letterbox_scale, int pad_x, int pad_y);
 
     /**
      * @brief Generate combined fire mask from detections

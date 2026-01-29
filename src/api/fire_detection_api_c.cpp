@@ -5,6 +5,7 @@
 
 #include "fire_detection_api.h"
 #include <cstring>
+#include <algorithm>
 
 //=============================================================================
 // C 接口实现
@@ -59,12 +60,43 @@ int fire_detector_process_frame(
 
     auto cpp_result = detector->processFrameRaw(data, width, height, channels);
 
+    // ========== 填充原有字段 ==========
     result->has_fire = cpp_result.frame.has_fire ? 1 : 0;
     result->has_smoke = cpp_result.frame.has_smoke ? 1 : 0;
     result->temporal_valid = cpp_result.temporal_valid ? 1 : 0;
     result->temporal_class = static_cast<int>(cpp_result.temporal_class);
     result->temporal_confidence = cpp_result.temporal_confidence;
     std::memcpy(result->class_scores, cpp_result.class_scores, sizeof(result->class_scores));
+
+    // ========== 填充检测框信息 ==========
+    const auto& detections = cpp_result.frame.detections;
+
+    // 限制检测数量不超过最大值
+    result->detection_count = static_cast<int>(
+        std::min(detections.size(), static_cast<size_t>(FIRE_DETECTION_MAX_BOXES))
+    );
+
+    // 复制检测框数据
+    for (int i = 0; i < result->detection_count; ++i) {
+        const auto& src = detections[i];
+        BoundingBoxC& dst = result->detections[i];
+
+        dst.x1 = src.x1;
+        dst.y1 = src.y1;
+        dst.x2 = src.x2;
+        dst.y2 = src.y2;
+        dst.confidence = src.confidence;
+        dst.class_id = static_cast<int>(src.class_id);
+    }
+
+    // 清零未使用的数组元素（提高安全性）
+    if (result->detection_count < FIRE_DETECTION_MAX_BOXES) {
+        std::memset(
+            &result->detections[result->detection_count],
+            0,
+            (FIRE_DETECTION_MAX_BOXES - result->detection_count) * sizeof(BoundingBoxC)
+        );
+    }
 
     return 1;
 }
@@ -127,6 +159,48 @@ int fire_detector_is_buffer_full(FireDetectorHandle handle) {
     }
     auto* detector = static_cast<fire_detection::FireDetector*>(handle);
     return detector->isBufferFull() ? 1 : 0;
+}
+
+int fire_detection_result_get_fire_boxes(
+    const FireDetectionResultC* result,
+    float confidence_threshold,
+    BoundingBoxC* output_boxes,
+    int max_boxes
+) {
+    if (!result || !output_boxes || max_boxes <= 0) {
+        return 0;
+    }
+
+    int count = 0;
+    for (int i = 0; i < result->detection_count && count < max_boxes; ++i) {
+        const BoundingBoxC& box = result->detections[i];
+        // class_id 0 = FIRE
+        if (box.class_id == 0 && box.confidence >= confidence_threshold) {
+            output_boxes[count++] = box;
+        }
+    }
+    return count;
+}
+
+int fire_detection_result_get_smoke_boxes(
+    const FireDetectionResultC* result,
+    float confidence_threshold,
+    BoundingBoxC* output_boxes,
+    int max_boxes
+) {
+    if (!result || !output_boxes || max_boxes <= 0) {
+        return 0;
+    }
+
+    int count = 0;
+    for (int i = 0; i < result->detection_count && count < max_boxes; ++i) {
+        const BoundingBoxC& box = result->detections[i];
+        // class_id 2 = SMOKE
+        if (box.class_id == 2 && box.confidence >= confidence_threshold) {
+            output_boxes[count++] = box;
+        }
+    }
+    return count;
 }
 
 const char* fire_detector_get_version(void) {

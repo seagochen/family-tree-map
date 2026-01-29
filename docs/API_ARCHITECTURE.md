@@ -291,28 +291,43 @@ flowchart LR
 
 #### 滑动窗口机制
 
+**重要**：只有检测到火焰或烟雾的帧才会被添加到缓冲区，无目标帧会被跳过。
+
 ```mermaid
 flowchart TB
+    subgraph Input["输入帧序列"]
+        direction LR
+        I1["帧1<br/>有目标"] --> I2["帧2<br/>无目标"] --> I3["帧3<br/>有目标"] --> I4["..."]
+    end
+
+    subgraph Decision["添加判断"]
+        Check{"检测到<br/>火焰/烟雾?"}
+    end
+
     subgraph Buffer["滑动窗口缓冲区 (seq_len=10)"]
         direction LR
-        F1["帧 1"] --> F2["帧 2"] --> F3["帧 3"] --> F4["..."] --> F10["帧 10"]
+        F1["帧 1"] --> F2["帧 3"] --> F3["帧 5"] --> F4["..."] --> F10["帧 N"]
     end
 
-    subgraph NewFrame["新帧到达"]
-        New["帧 11"]
-    end
+    I1 --> Check
+    Check -->|"是"| Buffer
+    Check -->|"否"| Skip["跳过，不添加"]
 
-    subgraph Updated["更新后"]
-        direction LR
-        F2_new["帧 2"] --> F3_new["帧 3"] --> F4_new["..."] --> F10_new["帧 10"] --> F11["帧 11"]
-    end
-
-    New --> Updated
-    Buffer -.->|"移除最旧帧"| Updated
-
-    style F1 fill:#ffcdd2
-    style F11 fill:#c8e6c9
+    style Skip fill:#ffcdd2
 ```
+
+**缓冲区行为说明**：
+
+| 场景 | 行为 |
+|------|------|
+| 帧中有火焰/烟雾 | 添加到缓冲区，滑动窗口更新 |
+| 帧中无目标 | 跳过，缓冲区不变 |
+| 缓冲区已满时添加新帧 | 移除最旧帧，添加新帧 |
+
+**影响**：
+- 缓冲区需要累计 10 帧**有目标的帧**才能进行时序分析
+- 如果目标间歇性出现，填满缓冲区可能需要更多实际帧数
+- 时序分析基于有目标的帧序列，避免全黑帧干扰
 
 #### ConvLSTM 推理流程
 
@@ -384,6 +399,15 @@ struct DetectionResult {
     TemporalClass temporal_class;       // STATIC / DYNAMIC / NEGATIVE
     float temporal_confidence;          // 时序分类置信度
     float class_scores[3];              // 各类别得分
+
+    // ===== 空间检测查询（不依赖时序分析，立即可用）=====
+    bool hasFire() const;               // 当前帧是否检测到火焰
+    bool hasSmoke() const;              // 当前帧是否检测到烟雾
+    std::vector<BoundingBox> getFireBoxes(float conf = 0.5f) const;   // 获取火焰检测框
+    std::vector<BoundingBox> getSmokeBoxes(float conf = 0.5f) const;  // 获取烟雾检测框
+
+    // ===== 时序分析查询（需要缓冲区满后才有效）=====
+    bool isFireAlert() const;           // 是否为真实火灾警报
 };
 
 struct FrameResult {
@@ -393,6 +417,16 @@ struct FrameResult {
     cv::Mat roi_frame;                  // ROI 处理后的帧
 };
 ```
+
+**查询函数说明**：
+
+| 函数 | 依赖时序分析 | 说明 |
+|------|------------|------|
+| `hasFire()` | 否 | 当前帧是否检测到火焰，第一帧即可用 |
+| `hasSmoke()` | 否 | 当前帧是否检测到烟雾，第一帧即可用 |
+| `getFireBoxes(conf)` | 否 | 获取置信度 ≥ conf 的火焰检测框 |
+| `getSmokeBoxes(conf)` | 否 | 获取置信度 ≥ conf 的烟雾检测框 |
+| `isFireAlert()` | 是 | 需要缓冲区满且时序分类为 DYNAMIC |
 
 ---
 

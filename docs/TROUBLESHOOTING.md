@@ -259,9 +259,9 @@ if (!fire_detector_process_frame(detector, frame_data, width, height, 3, &result
 
 **症状**: 处理多帧后，`result.temporal_valid` 仍为 `false`
 
-**原因**: 滑动窗口缓冲区未满。需要处理至少 `seq_len` 帧后才能进行时序分类。
+**原因**: 滑动窗口缓冲区未满。**重要**：只有检测到火焰或烟雾的帧才会被添加到缓冲区。
 
-**代码位置**: [src/api/fire_detection_api.cpp:162](src/api/fire_detection_api.cpp#L162)
+**代码位置**: [src/api/fire_detection_api.cpp:335-337](src/api/fire_detection_api.cpp#L335-L337)
 
 **验证方法**:
 
@@ -272,6 +272,10 @@ auto result = detector.processFrame(frame);
 std::cout << "Buffer: " << detector.getBufferSize()
           << "/" << detector.getBufferCapacity() << std::endl;
 
+// 检查当前帧是否有检测
+std::cout << "当前帧: hasFire=" << result.hasFire()
+          << ", hasSmoke=" << result.hasSmoke() << std::endl;
+
 // 只有缓冲区满时 temporal_valid 才为 true
 if (detector.isBufferFull()) {
     // 此时 result.temporal_valid 应为 true
@@ -279,16 +283,18 @@ if (detector.isBufferFull()) {
 }
 ```
 
-**典型时间线**:
+**典型时间线（有目标的帧才计入缓冲区）**:
 
 ```
-帧 1:  Buffer 1/10,  temporal_valid = false
-帧 2:  Buffer 2/10,  temporal_valid = false
+帧 1:  有火焰, Buffer 1/10,  temporal_valid = false
+帧 2:  无目标, Buffer 1/10,  temporal_valid = false  ← 跳过
+帧 3:  有火焰, Buffer 2/10,  temporal_valid = false
+帧 4:  无目标, Buffer 2/10,  temporal_valid = false  ← 跳过
 ...
-帧 9:  Buffer 9/10,  temporal_valid = false
-帧 10: Buffer 10/10, temporal_valid = true  ← 首次有效
-帧 11: Buffer 10/10, temporal_valid = true  ← 滑动窗口
+帧 N:  有火焰, Buffer 10/10, temporal_valid = true   ← 首次有效
 ```
+
+**注意**: 如果视频中火焰/烟雾间歇性出现，可能需要处理更多帧才能填满缓冲区。
 
 ### 2. 切换视频后时序结果异常
 
@@ -331,7 +337,7 @@ processVideo(detector, "next_video.mp4");
 auto result = detector.processFrame(frame);
 
 // 检查是否有检测
-if (!result.frame.hasDetection()) {
+if (!result.hasFire() && !result.hasSmoke()) {
     // 无检测时，ROI 帧应该全黑（或原帧，取决于配置）
 }
 
@@ -480,6 +486,8 @@ while (cap.read(frame)) {
 | `fire_detector_get_roi_frame()` | `1` | `0` |
 | `fire_detector_is_ready()` | `1` | `0` |
 | `fire_detector_is_buffer_full()` | `1` | `0` |
+| `fire_detection_result_get_fire_boxes()` | 检测框数量 | `0` |
+| `fire_detection_result_get_smoke_boxes()` | 检测框数量 | `0` |
 
 ---
 
@@ -518,9 +526,11 @@ std::cout << "帧通道: " << frame.channels() << std::endl;
 // 4. 验证结果
 auto result = detector.processFrame(frame);
 std::cout << "结果:" << std::endl;
-std::cout << "  火焰: " << result.frame.has_fire << std::endl;
-std::cout << "  烟雾: " << result.frame.has_smoke << std::endl;
+std::cout << "  火焰: " << result.hasFire() << std::endl;
+std::cout << "  烟雾: " << result.hasSmoke() << std::endl;
 std::cout << "  检测数: " << result.frame.detections.size() << std::endl;
+std::cout << "  火焰框数: " << result.getFireBoxes().size() << std::endl;
+std::cout << "  烟雾框数: " << result.getSmokeBoxes().size() << std::endl;
 std::cout << "  时序有效: " << result.temporal_valid << std::endl;
 std::cout << "  缓冲区: " << detector.getBufferSize()
           << "/" << detector.getBufferCapacity() << std::endl;
@@ -584,7 +594,8 @@ std::cout << "处理耗时: " << duration.count() << " ms" << std::endl;
 - [ ] 配置参数是否在有效范围内
 - [ ] 输入帧是否为有效的 3 通道 BGR 图像
 - [ ] 是否正确调用了 `initialize()`
-- [ ] 是否处理了足够多的帧（至少 `seq_len` 帧）
+- [ ] 是否处理了足够多的**有目标帧**（缓冲区只收集有火焰/烟雾的帧）
+- [ ] 使用 `hasFire()` / `hasSmoke()` 检查单帧检测结果
 - [ ] 切换视频源时是否调用了 `reset()`
 - [ ] C 接口是否正确调用了 `fire_detector_destroy()`
 - [ ] GPU 是否有足够的显存

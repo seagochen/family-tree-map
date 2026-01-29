@@ -83,12 +83,25 @@ int main() {
         // 4. 处理每一帧
         auto result = detector.processFrame(frame);
 
-        // 5. 检查单帧检测结果
-        if (result.frame.has_fire) {
+        // 5. 检查单帧检测结果（不依赖时序分析，立即可用）
+        if (result.hasFire()) {
             std::cout << "检测到火焰！" << std::endl;
+            // 获取火焰检测框
+            auto fire_boxes = result.getFireBoxes();
+            for (const auto& box : fire_boxes) {
+                std::cout << "  位置: (" << box.x1 << ", " << box.y1 << ") - ("
+                          << box.x2 << ", " << box.y2 << "), 置信度: "
+                          << box.confidence << std::endl;
+            }
         }
-        if (result.frame.has_smoke) {
+        if (result.hasSmoke()) {
             std::cout << "检测到烟雾！" << std::endl;
+            // 获取烟雾检测框（可指定置信度阈值）
+            auto smoke_boxes = result.getSmokeBoxes(0.6f);
+            for (const auto& box : smoke_boxes) {
+                std::cout << "  位置: (" << box.x1 << ", " << box.y1 << ") - ("
+                          << box.x2 << ", " << box.y2 << ")" << std::endl;
+            }
         }
 
         // 6. 检查时序分类结果（缓冲区满后有效）
@@ -146,7 +159,7 @@ void drawInfo(cv::Mat& frame, const fire_detection::DetectionResult& result,
     } else {
         detect_status += "None";
     }
-    cv::Scalar detect_color = result.frame.hasDetection()
+    cv::Scalar detect_color = (result.hasFire() || result.hasSmoke())
         ? cv::Scalar(0, 0, 255) : cv::Scalar(0, 255, 0);
     cv::putText(frame, detect_status, cv::Point(10, y),
                 cv::FONT_HERSHEY_SIMPLEX, 0.7, detect_color, 2);
@@ -412,8 +425,48 @@ void fire_detector_reset(FireDetectorHandle handle);
 int fire_detector_get_buffer_size(FireDetectorHandle handle);
 int fire_detector_is_buffer_full(FireDetectorHandle handle);
 
+// 结果查询辅助函数
+int fire_detection_result_get_fire_boxes(const FireDetectionResultC* result,
+                                          float confidence_threshold,
+                                          BoundingBoxC* output_boxes,
+                                          int max_boxes);
+int fire_detection_result_get_smoke_boxes(const FireDetectionResultC* result,
+                                           float confidence_threshold,
+                                           BoundingBoxC* output_boxes,
+                                           int max_boxes);
+
 // 版本
 const char* fire_detector_get_version(void);
+```
+
+### 获取特定类别检测框
+
+```c
+FireDetectionResultC result;
+if (fire_detector_process_frame(detector, frame_data, width, height, 3, &result)) {
+    // 获取火焰检测框
+    if (result.has_fire) {
+        BoundingBoxC fire_boxes[16];
+        int fire_count = fire_detection_result_get_fire_boxes(&result, 0.5f, fire_boxes, 16);
+        for (int i = 0; i < fire_count; i++) {
+            printf("火焰 %d: (%.0f, %.0f) - (%.0f, %.0f), 置信度: %.2f\n",
+                   i, fire_boxes[i].x1, fire_boxes[i].y1,
+                   fire_boxes[i].x2, fire_boxes[i].y2,
+                   fire_boxes[i].confidence);
+        }
+    }
+
+    // 获取烟雾检测框
+    if (result.has_smoke) {
+        BoundingBoxC smoke_boxes[16];
+        int smoke_count = fire_detection_result_get_smoke_boxes(&result, 0.5f, smoke_boxes, 16);
+        for (int i = 0; i < smoke_count; i++) {
+            printf("烟雾 %d: (%.0f, %.0f) - (%.0f, %.0f)\n",
+                   i, smoke_boxes[i].x1, smoke_boxes[i].y1,
+                   smoke_boxes[i].x2, smoke_boxes[i].y2);
+        }
+    }
+}
 ```
 
 ---

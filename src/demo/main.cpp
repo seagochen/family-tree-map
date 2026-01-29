@@ -100,7 +100,7 @@ int main(int argc, char* argv[]) {
             status = "No detection";
         }
 
-        cv::Scalar status_color = result.frame.hasDetection()
+        cv::Scalar status_color = (result.hasFire() || result.hasSmoke())
             ? cv::Scalar(0, 0, 255) : cv::Scalar(0, 255, 0);
 
         cv::putText(display, "Status: " + status,
@@ -112,6 +112,52 @@ int main(int argc, char* argv[]) {
             std::to_string(detector.getBufferCapacity()),
             cv::Point(10, 90), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
 
+        // 绘制检测框（BoundingBox）
+        for (const auto& bbox : result.frame.detections) {
+            // 计算矩形坐标
+            cv::Rect rect(
+                static_cast<int>(bbox.x1),
+                static_cast<int>(bbox.y1),
+                static_cast<int>(bbox.x2 - bbox.x1),
+                static_cast<int>(bbox.y2 - bbox.y1)
+            );
+
+            // 根据类别选择颜色：火焰=红色，烟雾=黄色
+            cv::Scalar color;
+            if (bbox.class_id == fire_detection::DetectionClass::FIRE) {
+                color = cv::Scalar(0, 0, 255);      // 红色 (BGR)
+            } else if (bbox.class_id == fire_detection::DetectionClass::SMOKE) {
+                color = cv::Scalar(0, 255, 255);    // 黄色 (BGR)
+            } else {
+                color = cv::Scalar(0, 255, 0);      // 绿色 (BGR)
+            }
+
+            // 绘制矩形框
+            cv::rectangle(display, rect, color, 2);
+
+            // 绘制标签（类别 + 置信度）
+            std::string label = std::string(fire_detection::detectionClassToString(bbox.class_id)) +
+                                " " + std::to_string(static_cast<int>(bbox.confidence * 100)) + "%";
+            int baseline = 0;
+            cv::Size text_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseline);
+
+            // 标签背景
+            cv::rectangle(display,
+                cv::Point(rect.x, rect.y - text_size.height - 5),
+                cv::Point(rect.x + text_size.width, rect.y),
+                color, cv::FILLED);
+
+            // 标签文字
+            cv::putText(display, label,
+                cv::Point(rect.x, rect.y - 3),
+                cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
+        }
+
+        // 显示检测框数量
+        cv::putText(display,
+            "Detections: " + std::to_string(result.frame.detections.size()),
+            cv::Point(10, 120), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 200, 0), 2);
+
         // 时序分类结果
         if (result.temporal_valid) {
             cv::Scalar cls_color = fire_detection::temporalClassToColor(result.temporal_class);
@@ -120,7 +166,7 @@ int main(int argc, char* argv[]) {
                 " (" + std::to_string(static_cast<int>(result.temporal_confidence * 100)) + "%)";
 
             cv::putText(display, cls_text,
-                cv::Point(10, 120), cv::FONT_HERSHEY_SIMPLEX, 0.7, cls_color, 2);
+                cv::Point(10, 150), cv::FONT_HERSHEY_SIMPLEX, 0.7, cls_color, 2);
 
             // 火灾警报
             if (result.isFireAlert()) {
