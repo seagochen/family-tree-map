@@ -6,7 +6,7 @@
  * @date 2025-04-22
  */
 
-#include "yolov8_postprocess.h"
+#include "detector/yolov8_postprocess.h"
 #include <cstring>
 #include <numeric>
 

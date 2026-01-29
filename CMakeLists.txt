@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.18)
-project(fire_detection_trt LANGUAGES CXX CUDA)
+project(fire_detection LANGUAGES CXX CUDA)
+
+# 版本信息
+set(FIRE_DETECTION_VERSION_MAJOR 1)
+set(FIRE_DETECTION_VERSION_MINOR 0)
+set(FIRE_DETECTION_VERSION_PATCH 0)
+set(FIRE_DETECTION_VERSION "${FIRE_DETECTION_VERSION_MAJOR}.${FIRE_DETECTION_VERSION_MINOR}.${FIRE_DETECTION_VERSION_PATCH}")
 
 # C++ standard
 set(CMAKE_CXX_STANDARD 17)
@@ -17,6 +23,10 @@ endif()
 # Compiler flags
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+
+# 符号可见性（用于共享库）
+set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 
 # Find CUDA
 find_package(CUDA REQUIRED)
@@ -70,17 +80,20 @@ include_directories(
     ${OpenCV_INCLUDE_DIRS}
 )
 
-# Source files
-set(TRT_ENGINE_SOURCES
-    src/yolov8_postprocess.cpp
-    src/fire_pipeline.cpp
-    src/roi_extractor.cpp
+#=============================================================================
+# 库源文件
+#=============================================================================
+set(FIRE_DETECTION_SOURCES
+    src/api/fire_detection_api.cpp
+    src/api/fire_detection_api_c.cpp
+    src/detector/segment_detector.cpp
+    src/detector/yolov8_postprocess.cpp
+    src/roi/roi_extractor.cpp
+    src/temporal/convlstm_classifier.cpp
 )
 
-# Create static library for trt_engine
-add_library(trt_engine STATIC ${TRT_ENGINE_SOURCES})
-
-target_link_libraries(trt_engine
+# 依赖库列表
+set(FIRE_DETECTION_LIBS
     ${NVINFER_LIB}
     ${NVONNXPARSER_LIB}
     ${SCT_LIB}
@@ -89,45 +102,90 @@ target_link_libraries(trt_engine
     CUDA::cudart
 )
 
-# Main executable
-add_executable(fire_detection_test src/main.cpp)
+#=============================================================================
+# 静态库
+#=============================================================================
+add_library(fire_detection_static STATIC ${FIRE_DETECTION_SOURCES})
 
-target_link_libraries(fire_detection_test
-    trt_engine
-    ${NVINFER_LIB}
-    ${NVONNXPARSER_LIB}
-    ${SCT_LIB}
-    ${TRT_ENGINE_LIB}
-    ${OpenCV_LIBS}
-    CUDA::cudart
+set_target_properties(fire_detection_static PROPERTIES
+    OUTPUT_NAME fire_detection
+    POSITION_INDEPENDENT_CODE ON
+)
+
+target_link_libraries(fire_detection_static
+    ${FIRE_DETECTION_LIBS}
+)
+
+#=============================================================================
+# 共享库
+#=============================================================================
+add_library(fire_detection_shared SHARED ${FIRE_DETECTION_SOURCES})
+
+set_target_properties(fire_detection_shared PROPERTIES
+    OUTPUT_NAME fire_detection
+    VERSION ${FIRE_DETECTION_VERSION}
+    SOVERSION ${FIRE_DETECTION_VERSION_MAJOR}
+)
+
+target_compile_definitions(fire_detection_shared PRIVATE FIRE_DETECTION_EXPORTS)
+
+target_link_libraries(fire_detection_shared
+    ${FIRE_DETECTION_LIBS}
+)
+
+#=============================================================================
+# 示例程序
+#=============================================================================
+add_executable(fire_detection_demo src/demo/main.cpp)
+
+target_link_libraries(fire_detection_demo
+    fire_detection_static
+    ${FIRE_DETECTION_LIBS}
     pthread
 )
 
-# Install targets
-install(TARGETS fire_detection_test trt_engine
+#=============================================================================
+# 安装规则
+#=============================================================================
+
+# 安装目标
+install(TARGETS fire_detection_static fire_detection_shared fire_detection_demo
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
 )
 
+# 安装公共头文件
+install(FILES include/fire_detection_api.h
+    DESTINATION include
+)
+
+# 安装内部头文件（可选，供开发者使用）
 install(DIRECTORY include/
     DESTINATION include
     FILES_MATCHING PATTERN "*.h"
 )
 
-# Print configuration summary
+#=============================================================================
+# 打印配置摘要
+#=============================================================================
 message(STATUS "")
 message(STATUS "========================================")
-message(STATUS "  Fire Detection TRT Configuration")
+message(STATUS "  Fire Detection Library v${FIRE_DETECTION_VERSION}")
 message(STATUS "========================================")
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "CUDA: ${CUDA_VERSION}")
 message(STATUS "TensorRT: ${TENSORRT_ROOT}")
 message(STATUS "  nvinfer: ${NVINFER_LIB}")
 message(STATUS "  nvonnxparser: ${NVONNXPARSER_LIB}")
-message(STATUS "SimpleCudaToolkits: ${SCT_ROOT}")
+message(STATUS "CUDATT: ${SCT_ROOT}")
 message(STATUS "  cuda_tensors: ${SCT_LIB}")
 message(STATUS "  cuda_tensors_trt: ${TRT_ENGINE_LIB}")
 message(STATUS "OpenCV: ${OpenCV_VERSION}")
+message(STATUS "")
+message(STATUS "Build targets:")
+message(STATUS "  - fire_detection_static (libfire_detection.a)")
+message(STATUS "  - fire_detection_shared (libfire_detection.so)")
+message(STATUS "  - fire_detection_demo")
 message(STATUS "========================================")
 message(STATUS "")
