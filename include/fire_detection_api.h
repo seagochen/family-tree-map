@@ -323,6 +323,28 @@ extern "C" {
 #endif
 
 /**
+ * @brief 单帧最大检测数量
+ *
+ * 设计考量：
+ * - 火灾场景中通常不会有超过 32 个独立的火焰/烟雾区域
+ * - 32 个 BoundingBoxC 占用约 768 字节，内存开销可接受
+ * - 如果实际检测数超过此值，将保留置信度最高的前 N 个
+ */
+#define FIRE_DETECTION_MAX_BOXES 32
+
+/**
+ * @brief C 风格的检测框结构
+ */
+typedef struct {
+    float x1;           ///< 左上角 X 坐标
+    float y1;           ///< 左上角 Y 坐标
+    float x2;           ///< 右下角 X 坐标
+    float y2;           ///< 右下角 Y 坐标
+    float confidence;   ///< 置信度 [0, 1]
+    int class_id;       ///< 类别 ID (0=FIRE, 1=PERSON, 2=SMOKE)
+} BoundingBoxC;
+
+/**
  * @brief 不透明句柄类型
  */
 typedef void* FireDetectorHandle;
@@ -343,14 +365,22 @@ typedef struct {
 
 /**
  * @brief C 风格检测结果
+ *
+ * 包含单帧检测结果和时序分类结果。
+ * 新增 detection_count 和 detections 字段用于返回检测框坐标。
  */
 typedef struct {
+    // ========== 原有字段（保持向后兼容）==========
     int has_fire;                       ///< 是否有火焰 (0/1)
     int has_smoke;                      ///< 是否有烟雾 (0/1)
     int temporal_valid;                 ///< 时序结果有效 (0/1)
     int temporal_class;                 ///< 时序分类 (0=STATIC, 1=DYNAMIC, 2=NEGATIVE)
     float temporal_confidence;          ///< 时序置信度
     float class_scores[3];              ///< 各类别得分
+
+    // ========== 新增字段：检测框信息 ==========
+    int detection_count;                                ///< 实际检测框数量 [0, FIRE_DETECTION_MAX_BOXES]
+    BoundingBoxC detections[FIRE_DETECTION_MAX_BOXES];  ///< 检测框数组
 } FireDetectionResultC;
 
 /**
