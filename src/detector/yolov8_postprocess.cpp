@@ -53,10 +53,13 @@ YOLOv8PostProcessor::YOLOv8PostProcessor(int num_classes,
  *     3. 为每个保留的检测生成实例分割掩码
  *     4. 将坐标从模型输入尺寸缩放到原始图像尺寸
  *
- *   坐标系统说明：
- *     - 模型坐标：相对于input_width × input_height（如640×640）
- *     - 原图坐标：相对于img_width × img_height（原始图像尺寸）
- *     - 需要进行缩放转换
+ *   坐标系统说明（Letterbox预处理）：
+ *     - 原图 (img_width × img_height) 经过letterbox预处理后变为 (input_width × input_height)
+ *     - Letterbox步骤：
+ *       1. 按 letterbox_scale 缩放（保持宽高比）
+ *       2. 居中放置，周围填充灰色 (114, 114, 114)
+ *       3. pad_x/pad_y 是填充偏移量
+ *     - 坐标还原公式：x_orig = (x_model - pad_x) / letterbox_scale
  *
  * @param output0 检测头输出 (1, 4+num_classes+32, 8400)
  * @param output1 原型掩码输出 (1, 32, 160, 160)
@@ -64,13 +67,17 @@ YOLOv8PostProcessor::YOLOv8PostProcessor(int num_classes,
  * @param img_height 原始图像高度
  * @param input_width 模型输入宽度（通常为640）
  * @param input_height 模型输入高度（通常为640）
+ * @param letterbox_scale Letterbox缩放比例
+ * @param pad_x 水平填充偏移量
+ * @param pad_y 垂直填充偏移量
  * @return 检测结果列表，包含边界框和实例掩码
  */
 std::vector<Detection> YOLOv8PostProcessor::process(
     const std::vector<float>& output0,
     const std::vector<float>& output1,
     int img_width, int img_height,
-    int input_width, int input_height)
+    int input_width, int input_height,
+    float letterbox_scale, int pad_x, int pad_y)
 {
     // YOLOv8输出格式说明：
     // output0: (1, 116, 8400)
@@ -78,10 +85,8 @@ std::vector<Detection> YOLOv8PostProcessor::process(
     //   - 8400 = 80×80 + 40×40 + 20×20 (三个检测头的锚点总数)
     // output1: (1, 32, 160, 160) 原型掩码
 
-    const int num_anchors = 8400;   // 锚点总数
     const int proto_h = 160;        // 原型掩码高度
     const int proto_w = 160;        // 原型掩码宽度
-    const int mask_coeffs = 32;     // 掩码系数数量
 
     // 步骤1：解码检测输出，提取边界框和掩码系数
     std::vector<BBox> boxes = decodeOutput(output0, input_width, input_height);
@@ -93,19 +98,16 @@ std::vector<Detection> YOLOv8PostProcessor::process(
     std::vector<Detection> detections;
     detections.reserve(filtered.size());
 
-    // 计算从模型坐标到原图坐标的缩放因子
-    float scale_x = static_cast<float>(img_width) / input_width;
-    float scale_y = static_cast<float>(img_height) / input_height;
-
     for (auto& bbox : filtered) {
         Detection det;
 
-        // 将边界框坐标缩放到原始图像尺寸
+        // 将边界框坐标从letterbox空间还原到原始图像空间
+        // 公式: x_orig = (x_letterbox - pad) / scale
         det.bbox = bbox;
-        det.bbox.x1 *= scale_x;
-        det.bbox.y1 *= scale_y;
-        det.bbox.x2 *= scale_x;
-        det.bbox.y2 *= scale_y;
+        det.bbox.x1 = (bbox.x1 - pad_x) / letterbox_scale;
+        det.bbox.y1 = (bbox.y1 - pad_y) / letterbox_scale;
+        det.bbox.x2 = (bbox.x2 - pad_x) / letterbox_scale;
+        det.bbox.y2 = (bbox.y2 - pad_y) / letterbox_scale;
 
         // 将边界框裁剪到图像边界内，防止越界
         det.bbox.x1 = std::max(0.0f, std::min(det.bbox.x1, static_cast<float>(img_width)));

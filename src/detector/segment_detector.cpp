@@ -307,10 +307,12 @@ std::vector<roi_extractor::ROIDetection> SegmentDetector::detect(const cv::Mat& 
     // 调用后处理器解析模型输出
     // 后处理器负责: 解码边界框、NMS、生成实例掩膜
     // 返回的检测结果已经转换到原始图像坐标系
+    // 传递letterbox参数以正确还原坐标
     std::vector<Detection> detections = postprocessor_.process(
         output0_data, output1_data,
-        frame.cols, frame.rows,      // 原始图像尺寸，用于坐标还原
-        INPUT_WIDTH, INPUT_HEIGHT    // 模型输入尺寸
+        frame.cols, frame.rows,      // 原始图像尺寸
+        INPUT_WIDTH, INPUT_HEIGHT,   // 模型输入尺寸
+        scale, pad_x, pad_y          // letterbox缩放参数
     );
 
     // ========== 阶段4: 结果格式转换 ==========

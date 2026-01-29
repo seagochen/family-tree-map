@@ -128,10 +128,10 @@ struct FIRE_API BoundingBox {
  * @brief 单帧检测结果
  */
 struct FIRE_API FrameResult {
-    bool has_fire = false;              ///< 是否检测到火焰
-    bool has_smoke = false;             ///< 是否检测到烟雾
-    std::vector<BoundingBox> detections; ///< 检测框列表
-    cv::Mat roi_frame;                  ///< ROI 处理后的帧（非 ROI 区域置黑）
+    bool has_fire = false;                  ///< 是否检测到火焰
+    bool has_smoke = false;                 ///< 是否检测到烟雾
+    std::vector<BoundingBox> detections;    ///< 检测框列表
+    cv::Mat roi_frame;                      ///< ROI 处理后的帧（非 ROI 区域置黑），验证用或可视化
 };
 
 /**

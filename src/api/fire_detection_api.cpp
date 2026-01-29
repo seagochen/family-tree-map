@@ -310,12 +310,19 @@ public:
             // 转换检测框格式
             // 从内部 ROIDetection 格式转换为 API 的 BoundingBox 格式
             // BoundingBox 使用 (x1, y1, x2, y2) 表示左上角和右下角坐标
+            //
+            // 坐标缩放说明：
+            // - 内部检测在 640×640 空间进行（INFERENCE_WIDTH × INFERENCE_HEIGHT）
+            // - 需要缩放到用户输入的原始帧尺寸
+            const float scale_x = static_cast<float>(frame.cols) / 640.0f;
+            const float scale_y = static_cast<float>(frame.rows) / 640.0f;
+
             for (const auto& det : processed.detections) {
                 BoundingBox bbox;
-                bbox.x1 = static_cast<float>(det.bbox.x);
-                bbox.y1 = static_cast<float>(det.bbox.y);
-                bbox.x2 = static_cast<float>(det.bbox.x + det.bbox.width);
-                bbox.y2 = static_cast<float>(det.bbox.y + det.bbox.height);
+                bbox.x1 = static_cast<float>(det.bbox.x) * scale_x;
+                bbox.y1 = static_cast<float>(det.bbox.y) * scale_y;
+                bbox.x2 = static_cast<float>(det.bbox.x + det.bbox.width) * scale_x;
+                bbox.y2 = static_cast<float>(det.bbox.y + det.bbox.height) * scale_y;
                 bbox.confidence = det.confidence;
                 bbox.class_id = static_cast<DetectionClass>(det.class_id);
                 result.frame.detections.push_back(bbox);
