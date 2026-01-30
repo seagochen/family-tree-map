@@ -81,7 +81,9 @@ int main(int argc, char* argv[]) {
         auto result = detector.processFrame(frame);
 
         // 在帧上绘制信息
-        cv::Mat display = result.frame.roi_frame.clone();
+        // cv::Mat display = result.frame.roi_frame.clone();
+        cv::Mat display;
+        cv::resize(frame, display, cv::Size(640, 640)); // 使用原始帧进行显示
 
         // 帧信息
         cv::putText(display,
@@ -113,13 +115,17 @@ int main(int argc, char* argv[]) {
             cv::Point(10, 90), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
 
         // 绘制检测框（BoundingBox）
+        // 计算从原始帧到display的缩放比例
+        const float scale_x = 640.0f / frame.cols;
+        const float scale_y = 640.0f / frame.rows;
+
         for (const auto& bbox : result.frame.detections) {
-            // 计算矩形坐标
+            // 计算矩形坐标（将原始帧坐标转换到display坐标）
             cv::Rect rect(
-                static_cast<int>(bbox.x1),
-                static_cast<int>(bbox.y1),
-                static_cast<int>(bbox.x2 - bbox.x1),
-                static_cast<int>(bbox.y2 - bbox.y1)
+                static_cast<int>(bbox.x1 * scale_x),
+                static_cast<int>(bbox.y1 * scale_y),
+                static_cast<int>((bbox.x2 - bbox.x1) * scale_x),
+                static_cast<int>((bbox.y2 - bbox.y1) * scale_y)
             );
 
             // 根据类别选择颜色：火焰=红色，烟雾=黄色
