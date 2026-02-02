@@ -13,7 +13,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 MODEL_PATH="$PROJECT_ROOT/models/segment.pt"
 ONNX_PATH="$PROJECT_ROOT/models/segment.onnx"
-CONFIG_PATH="$PROJECT_ROOT/trt_configs/segment.json"
+CONFIG_PATH="$PROJECT_ROOT/configs/segment.json"
 
 echo "=============================================="
 echo "YOLO Segment: .pt -> .onnx -> .engine"

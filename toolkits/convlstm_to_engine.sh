@@ -14,7 +14,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 MODEL_PATH="$PROJECT_ROOT/models/convlstm.pth"
 ONNX_PATH="$PROJECT_ROOT/models/convlstm.onnx"
-CONFIG_PATH="$PROJECT_ROOT/trt_configs/convlstm.json"
+CONFIG_PATH="$PROJECT_ROOT/configs/convlstm.json"
 SEQ_LEN=${1:-10}
 NUM_CLASSES=${2:-3}
 
