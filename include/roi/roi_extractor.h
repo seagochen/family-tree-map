@@ -4,8 +4,9 @@
  *
  * Provides functionality to extract fire and smoke regions from video frames:
  * - fire (class 0): Uses segmentation mask + EMA smoothing
- * - smoke (class 2): Uses batch-wise bbox union strategy
- * - person (class 1): Ignored (negative samples)
+ * - flower (class 1): Ignored (negative samples)
+ * - person (class 2): Ignored (negative samples)
+ * - smoke (class 3): Uses batch-wise bbox union strategy
  *
  * Processing pipeline:
  * 1. Run detection on all frames
@@ -36,27 +37,29 @@ namespace roi_extractor {
 // Class names (corresponding to data.yaml)
 inline const std::unordered_map<int, std::string> CLASS_NAMES = {
     {0, "fire"},
-    {1, "person"},  // Negative sample, ignored during processing
-    {2, "smoke"}
+    {1, "flower"},  // Negative sample, ignored during processing
+    {2, "person"},  // Negative sample, ignored during processing
+    {3, "smoke"}
 };
 
 // Target classes (classes to process)
-inline const std::unordered_set<int> TARGET_CLASSES = {0, 2};  // fire, smoke
+inline const std::unordered_set<int> TARGET_CLASSES = {0, 3};  // fire, smoke
 
 // Classes using segmentation mask (fire)
 inline const std::unordered_set<int> SEGMENT_CLASSES = {0};
 
 // Classes using bbox (smoke)
-inline const std::unordered_set<int> BBOX_CLASSES = {2};
+inline const std::unordered_set<int> BBOX_CLASSES = {3};
 
 // Negative sample classes (ignored)
-inline const std::unordered_set<int> NEGATIVE_CLASSES = {1};  // person
+inline const std::unordered_set<int> NEGATIVE_CLASSES = {1, 2};  // flower, person
 
 // Class colors (BGR format for visualization)
 inline const std::unordered_map<int, cv::Scalar> CLASS_COLORS = {
     {0, cv::Scalar(0, 0, 255)},     // fire - red
-    {1, cv::Scalar(0, 255, 0)},     // person - green (visualization only)
-    {2, cv::Scalar(0, 255, 255)}    // smoke - yellow
+    {1, cv::Scalar(0, 255, 0)},     // flower - green (visualization only)
+    {2, cv::Scalar(255, 0, 0)},     // person - blue (visualization only)
+    {3, cv::Scalar(0, 255, 255)}    // smoke - yellow
 };
 
 // YOLO inference size

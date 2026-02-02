@@ -60,9 +60,10 @@ enum class TemporalClass {
  * @brief 检测类别
  */
 enum class DetectionClass {
-    FIRE = 0,      ///< 火焰
-    PERSON = 1,    ///< 人（负样本，忽略）
-    SMOKE = 2      ///< 烟雾
+    FIRE = 0,       ///< 火焰
+    FLOWER = 1,     ///< 花卉（负样本，忽略）
+    PERSON = 2,     ///< 人（负样本，忽略）
+    SMOKE = 3       ///< 烟雾
 };
 
 //=============================================================================

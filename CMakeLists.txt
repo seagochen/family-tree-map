@@ -90,6 +90,8 @@ set(FIRE_DETECTION_SOURCES
     src/detector/yolov8_postprocess.cpp
     src/roi/roi_extractor.cpp
     src/temporal/convlstm_classifier.cpp
+    src/scene/scene_controller.cpp
+    src/scene/scene_controller_c.cpp
 )
 
 # 依赖库列表
@@ -136,7 +138,7 @@ target_link_libraries(fire_detection_shared
 #=============================================================================
 # 示例程序
 #=============================================================================
-add_executable(fire_detection_demo src/demo/main.cpp)
+add_executable(fire_detection_demo src/demo/fire_detection.cpp)
 
 target_link_libraries(fire_detection_demo
     fire_detection_static
@@ -145,11 +147,29 @@ target_link_libraries(fire_detection_demo
 )
 
 #=============================================================================
+# 性能基准测试程序
+#=============================================================================
+add_executable(fire_detection_benchmark src/demo/benchmark.cpp)
+
+target_link_libraries(fire_detection_benchmark
+    fire_detection_static
+    ${FIRE_DETECTION_LIBS}
+    pthread
+)
+
+# 复制基准测试资源文件到构建目录
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/res/benchmark.jpg
+    ${CMAKE_CURRENT_BINARY_DIR}/benchmark.jpg
+    COPYONLY
+)
+
+#=============================================================================
 # 安装规则
 #=============================================================================
 
 # 安装目标
-install(TARGETS fire_detection_static fire_detection_shared fire_detection_demo
+install(TARGETS fire_detection_static fire_detection_shared fire_detection_demo fire_detection_benchmark
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
@@ -187,5 +207,6 @@ message(STATUS "Build targets:")
 message(STATUS "  - fire_detection_static (libfire_detection.a)")
 message(STATUS "  - fire_detection_shared (libfire_detection.so)")
 message(STATUS "  - fire_detection_demo")
+message(STATUS "  - fire_detection_benchmark")
 message(STATUS "========================================")
 message(STATUS "")

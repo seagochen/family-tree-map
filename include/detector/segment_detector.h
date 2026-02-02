@@ -24,7 +24,7 @@ namespace internal {
 // YOLOv8-seg 模型常量
 constexpr int INPUT_WIDTH = 640;
 constexpr int INPUT_HEIGHT = 640;
-constexpr int NUM_CLASSES = 3;  // fire, person, smoke
+constexpr int NUM_CLASSES = 4;  // fire, flower, person, smoke
 constexpr int MASK_PROTO_H = 160;
 constexpr int MASK_PROTO_W = 160;
 constexpr int NUM_MASK_COEFFS = 32;
