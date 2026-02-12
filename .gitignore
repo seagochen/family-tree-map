@@ -298,3 +298,6 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# Ignore synchronization config files
+sync_config.yaml
