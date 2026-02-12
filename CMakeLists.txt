@@ -157,6 +157,17 @@ target_link_libraries(fire_detection_benchmark
     pthread
 )
 
+#=============================================================================
+# SceneController 测试程序
+#=============================================================================
+add_executable(scene_controller_test src/demo/scene_test.cpp)
+
+target_link_libraries(scene_controller_test
+    fire_detection_static
+    ${FIRE_DETECTION_LIBS}
+    pthread
+)
+
 # 复制基准测试资源文件到构建目录
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/res/benchmark.jpg
@@ -169,7 +180,7 @@ configure_file(
 #=============================================================================
 
 # 安装目标
-install(TARGETS fire_detection_static fire_detection_shared fire_detection_demo fire_detection_benchmark
+install(TARGETS fire_detection_static fire_detection_shared fire_detection_demo fire_detection_benchmark scene_controller_test
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
