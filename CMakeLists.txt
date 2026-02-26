@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.18)
-project(fire_detection LANGUAGES CXX CUDA)
+project(fire_detection LANGUAGES CXX)
+
+# --- Export compile_commands.json for clangd ---
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # 版本信息
 set(FIRE_DETECTION_VERSION_MAJOR 1)
@@ -10,10 +13,6 @@ set(FIRE_DETECTION_VERSION "${FIRE_DETECTION_VERSION_MAJOR}.${FIRE_DETECTION_VER
 # C++ standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-# CUDA standard
-set(CMAKE_CUDA_STANDARD 17)
-set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
 # Build type
 if(NOT CMAKE_BUILD_TYPE)
@@ -27,10 +26,6 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 # 符号可见性（用于共享库）
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
-
-# Find CUDA
-find_package(CUDA REQUIRED)
-find_package(CUDAToolkit REQUIRED)
 
 # Find OpenCV
 find_package(OpenCV REQUIRED)
@@ -60,21 +55,13 @@ set(SCT_LIB_DIR "${SCT_ROOT}/lib")
 find_library(SCT_LIB cuda_tensors
     HINTS ${SCT_LIB_DIR})
 
-find_library(TRT_ENGINE_LIB cuda_tensors_trt
-    HINTS ${SCT_LIB_DIR})
-
 if(NOT SCT_LIB)
     message(FATAL_ERROR "Could not find cuda_tensors library at ${SCT_LIB_DIR}")
-endif()
-
-if(NOT TRT_ENGINE_LIB)
-    message(FATAL_ERROR "Could not find cuda_tensors_trt library at ${SCT_LIB_DIR}")
 endif()
 
 # Include directories
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CUDA_INCLUDE_DIRS}
     ${TENSORRT_ROOT}/include
     ${SCT_INCLUDE_DIR}
     ${OpenCV_INCLUDE_DIRS}
@@ -99,9 +86,7 @@ set(FIRE_DETECTION_LIBS
     ${NVINFER_LIB}
     ${NVONNXPARSER_LIB}
     ${SCT_LIB}
-    ${TRT_ENGINE_LIB}
     ${OpenCV_LIBS}
-    CUDA::cudart
 )
 
 #=============================================================================
@@ -205,13 +190,11 @@ message(STATUS "========================================")
 message(STATUS "  Fire Detection Library v${FIRE_DETECTION_VERSION}")
 message(STATUS "========================================")
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
-message(STATUS "CUDA: ${CUDA_VERSION}")
 message(STATUS "TensorRT: ${TENSORRT_ROOT}")
 message(STATUS "  nvinfer: ${NVINFER_LIB}")
 message(STATUS "  nvonnxparser: ${NVONNXPARSER_LIB}")
 message(STATUS "CUDATT: ${SCT_ROOT}")
 message(STATUS "  cuda_tensors: ${SCT_LIB}")
-message(STATUS "  cuda_tensors_trt: ${TRT_ENGINE_LIB}")
 message(STATUS "OpenCV: ${OpenCV_VERSION}")
 message(STATUS "")
 message(STATUS "Build targets:")

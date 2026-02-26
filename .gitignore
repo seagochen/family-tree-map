@@ -299,5 +299,7 @@ vcpkg_installed/
 Testing/
 .cache/
 
-# Ignore synchronization config files
+# Ignore other config files
 sync_config.yaml
+compile_commands.json
+.clangd

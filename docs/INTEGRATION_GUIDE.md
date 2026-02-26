@@ -15,7 +15,7 @@
 | CUDA | 11.x | GPU 计算支持 |
 | TensorRT | 8.x | 深度学习推理引擎 |
 | OpenCV | 4.x | 图像处理 |
-| cudatt | - | TensorRT 引擎封装库 |
+| cudatt | - | CUDA 张量运算与 TensorRT 引擎封装库 |
 
 ### 库文件
 
