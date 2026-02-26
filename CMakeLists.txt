@@ -27,6 +27,9 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 
+# Find CUDA headers (required by TensorRT headers)
+find_package(CUDAToolkit REQUIRED)
+
 # Find OpenCV
 find_package(OpenCV REQUIRED)
 
@@ -62,6 +65,7 @@ endif()
 # Include directories
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CUDAToolkit_INCLUDE_DIRS}
     ${TENSORRT_ROOT}/include
     ${SCT_INCLUDE_DIR}
     ${OpenCV_INCLUDE_DIRS}
