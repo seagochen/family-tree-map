@@ -27,7 +27,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 
-# Find CUDA headers (required by TensorRT headers)
+# Find CUDA (headers for TensorRT, cudart for cudatt tensor templates)
 find_package(CUDAToolkit REQUIRED)
 
 # Find OpenCV
@@ -91,6 +91,7 @@ set(FIRE_DETECTION_LIBS
     ${NVONNXPARSER_LIB}
     ${SCT_LIB}
     ${OpenCV_LIBS}
+    CUDA::cudart
 )
 
 #=============================================================================
